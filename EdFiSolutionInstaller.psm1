@@ -1,9 +1,9 @@
 function Get-ConfigParam {
     [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
     param (
-        $param,
-        $configParam,
-        $default=$null
+        [string]$param,
+        [string]$configParam,
+        [string]$default=$null
     )
     if ([string]::IsNullOrEmpty($param)) {
         if (!([string]::IsNullOrEmpty($configParam))) {

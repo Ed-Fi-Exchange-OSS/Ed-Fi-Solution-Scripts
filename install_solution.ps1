@@ -41,9 +41,9 @@ $SolutionsAppName = Get-ConfigParam $null $cfg.SolutionsAppName "Solutions"
 # Ed-Fi Solution Builder Script for Windows Powershell
 #
 $GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"} else {"2a823fceef347552bd9d68091c44d6aec90111a3:x-oauth-basic"}
-$hostOnly = $DnsName.Substring(0,$DnsName.IndexOf("."))
-if ($null -eq $hostOnly) {
-    $hostOnly=="edfisolsrv"
+$hostOnly=$DnsName
+if ($DnsName.IndexOf(".") -gt 1) {
+    $hostOnly = $DnsName.Substring(0,$DnsName.IndexOf("."))
 }
 # $MSSQLEURL = if ($cfg.MSSQLEURL) {$cfg.MSSQLEURL} else {'https://download.microsoft.com/download/8/4/c/84c6c430-e0f5-476d-bf43-eaaa222a72e0/SQLEXPR_x64_ENU.exe'}
 $MSSQLEURL = 'https://download.microsoft.com/download/8/4/c/84c6c430-e0f5-476d-bf43-eaaa222a72e0/SQLEXPR_x64_ENU.exe'
