@@ -1,0 +1,20 @@
+{
+    "installType": "Staging",
+    "DnsName": "edfisolsrv",
+    "AdminEmail": "techsupport@ed-fi.org",
+    "DDNSUsername": "edfisolutions",
+    "GitPAT": "2a823fceef347552bd9d68091c44d6aec90111a3",
+    "EdFiDir": "C:\\Ed-Fi",
+    "DownloadPath": "C:\\Ed-Fi\\Downloads",
+    "SolutionWebRoot": "C:\\Ed-Fi\\www",
+    "SolutionsAppName": "EdFiSolutions",
+    "MSSQLEURL": "https://download.microsoft.com/download/8/4/c/84c6c430-e0f5-476d-bf43-eaaa222a72e0/SQLEXPR_x64_ENU.exe",
+    "MSSQLINST": "MSSQLSERVER",
+    "dotnetcorePackage": {
+        "package":"dotnetcore-windowshosting",
+        "version":"2.2.8"
+    },
+    "baseChocoPackages": "netfx-4.8-devpack dotnetcore-sdk nuget.commandline urlrewrite git win-acme",
+    "selectedChocoPackages": "sql-server-management-studio",
+    "optionalChocoPackages": "microsoft-edge"
+}

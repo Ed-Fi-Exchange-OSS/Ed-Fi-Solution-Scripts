@@ -1,0 +1,484 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Instantiates development environments for installation of an Ed-Fi Operational Data Store (ODS) and API web server.",
+  "Parameters": {
+    "0-CurrentWinAMI": {
+      "Description": "Enter the Windows Server Base AMI from the EC2 Quick Start Instance list for your AWS region.\n Use Launch Instance under the EC2 Dashboard or Instances view to show the current list.\n Or visit: https://ec2.amazonaws.com/?Action=DescribeImages&Filter.1.Name=is-public&Filter.1.Value.1=true&Filter.2.Name=architecture&Filter.2.Value.1=x86_64&Filter.3.Name=platform&Filter.3.Value.1=windows&AUTHPARAMS",
+      "Type": "String",
+      "Default": "ami-029e27fb2fc8ce9d8"
+    },
+    "0-SelectedInstanceType": {
+      "Description": "EC2 instance type, Development machine = t3.medium. Testing = m4.large",
+      "Type": "String",
+      "Default": "t3.medium",
+      "AllowedValues": [
+        "t3.nano",
+        "t3.micro",
+        "t3.small",
+        "t3.medium",
+        "t3.large",
+        "m5ad.large",
+        "m5ad.xlarge",
+        "m5a.large",
+        "m5a.xlarge",
+        "m5d.large",
+        "m5d.xlarge",
+        "m5.large",
+        "m5.xlarge"
+      ],
+      "ConstraintDescription": "Must be a valid EC2 instance type."
+    },
+    "1-KeyName": {
+      "Description": "Key Pair Name - You must create an EC2 Key Pair before launching this template; the private key (*.pem file) downloaded will be used to obtain the administrator password used to remotely log in to your EC2 instances (servers).",
+      "Type": "AWS::EC2::KeyPair::KeyName"
+    },
+    "2-SolutionName" : {
+      "Description": "Select a particular solution by name to install, or select \"\" (empty) to install all solutions available. Default: Install base Suite 3 ODS/API",
+      "Type": "String",
+      "Default": "Ed-Fi Solution Starter Kits",
+      "AllowedValues": [
+        "",
+        "ChronicAbsenteeism",
+        "ParentPortal",
+        "Ed-Fi Solution Starter Kits"
+      ],
+      "ConstraintDescription": "Must be name of an available solution"  
+    },
+    "3-DnsName" : {
+        "Description": "DNS hostname to use for this server (if one exists)",
+        "Type": "String",
+        "Default": "",
+        "AllowedPattern": "(.*)\\.(.*)",
+        "ConstraintDescription": "Must be a valid DNS hostname: e.g. demo.ed-fi.org"  
+    },
+    "4-AdminEmail" : {
+        "Description": "Email address of administrative contact",
+        "Type": "String",
+        "Default": "",
+        "AllowedPattern": "(.*)@(.*)",
+        "ConstraintDescription": "Must be a valid email address: e.g. techsupport@ed-fi.org"  
+    },
+    "5-DDNSUsername": {
+      "Description": "Username for the Dynamic DNS service",
+      "Type": "String",
+      "Default": "edfisolutions"
+    },
+    "6-DDNSPassword": {
+      "Description": "Password for the Dynamic DNS service",
+      "Type": "String",
+      "Default": "edfisolutions"
+    },
+    "7-RemoteNetwork": {
+      "Description": "The IP address range that can be used to limit connectivity to the EC2 instances e.g. 65.36.34.0/24",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "255.255.255.255/32",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    }
+  },
+  "Conditions": {},
+  "Mappings": {
+    "RegionMap": {
+      "us-east-1": {
+        "AMILookupS3Bucket": "winami1.lambda.edfi.org",
+        "AWSLogsAcct": "127311923021"
+      },
+      "us-east-2": {
+        "AMILookupS3Bucket": "winami2.lambda.edfi.org",
+        "AWSLogsAcct": "033677994240"
+      },
+      "us-west-1": {
+        "AMILookupS3Bucket": "winami3.lambda.edfi.org",
+        "AWSLogsAcct": "027434742980"
+      },
+      "us-west-2": {
+        "AMILookupS3Bucket": "winami4.lambda.edfi.org",
+        "AWSLogsAcct": "797873946194"
+      }
+    }
+  },
+  "Resources": {
+    "EdFiDevVPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.10.0.0/16",
+        "EnableDnsHostnames": "true",
+        "EnableDnsSupport": "true",
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-VPC" ]]} }
+        ]
+      }
+    },
+    "EdFiDevInternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-InetGw" ]]} }
+        ]
+      }
+    },
+    "VPCGatewayAttachment": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": { "Ref": "EdFiDevVPC" },
+        "InternetGatewayId": { "Ref": "EdFiDevInternetGateway" }
+      }
+    },
+    "PublicOutRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": { "Ref": "EdFiDevVPC" },
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-PubOutRouteTable" ]]} }
+        ]
+      }
+    },
+    "PublicOutRouteToInternet": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": { "Ref": "PublicOutRouteTable" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": { "Ref": "EdFiDevInternetGateway" }
+      },
+      "DependsOn": "VPCGatewayAttachment"
+    },
+    "PrivateOnlyRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": { "Ref": "EdFiDevVPC" },
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-PrivRouteTable" ]] } }
+        ]
+      }
+    },
+    "ODSAPINetworkAcl": {
+      "Type": "AWS::EC2::NetworkAcl",
+      "Properties": {
+        "VpcId": { "Ref": "EdFiDevVPC" },
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-APINetAcl" ]]} }
+        ]
+      }
+    },
+    "ODSAPIHTTPIn": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "1000",
+        "Protocol": "6",
+        "PortRange": { "From": "80", "To": "80" },
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "ODSAPIHTTPOut": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "1010",
+        "Protocol": "6",
+        "PortRange": { "From": "80", "To": "80" },
+        "RuleAction": "allow",
+        "Egress": "true",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "ODSAPIHTTPSIn": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "1020",
+        "Protocol": "6",
+        "PortRange": { "From": "443", "To": "443" },
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "ODSAPIHTTPSOut": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "1030",
+        "Protocol": "6",
+        "PortRange": { "From": "443", "To": "443" },
+        "RuleAction": "allow",
+        "Egress": "true",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "RemoteAccessTCPRDPIn": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "2000",
+        "Protocol": "6",
+        "PortRange": { "From": "3389", "To": "3389" },
+        "RuleAction": "deny",
+        "Egress": "false",
+        "CidrBlock": { "Ref": "7-RemoteNetwork" }
+      }
+    },
+    "SubnetODSAPI": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "AvailabilityZone": { "Fn::Select": [ "0", { "Fn::GetAZs": "" } ] },
+        "CidrBlock": "10.10.100.0/24",
+        "VpcId": {
+          "Ref": "EdFiDevVPC"
+        },
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-Subnet" ]]} }
+        ]
+      }
+    },
+    "SubnetODSAPIRouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "SubnetODSAPI" },
+        "RouteTableId": { "Ref": "PublicOutRouteTable" }
+      }
+    },
+    "SubnetODSAPINetworkAclAssociation": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "SubnetODSAPI" },
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" }
+      }
+    },
+    "EdFiODSAPISecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Enables HTTP/HTTPS to everyone, and Remote Desktop access if RemoteNetwork given (Only on Ingress route, ACL will still block)",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "443",
+            "ToPort": "443",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "3389",
+            "ToPort": "3389",
+            "CidrIp": { "Ref": "7-RemoteNetwork" }
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "FromPort": "-1",
+            "ToPort": "-1",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "VpcId": { "Ref": "EdFiDevVPC" },
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-SecGroup" ]]} }
+        ]
+      }
+    },
+    "ServerAssumptionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com",
+                  "rds.amazonaws.com",
+                  "s3.amazonaws.com",
+                  "vpc-flow-logs.amazonaws.com",
+                  "config.amazonaws.com"
+                ]
+              },
+              "Action": [ "sts:AssumeRole" ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "root",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [ { "Effect": "Allow", "Action": "*", "Resource": "*" } ]
+            }
+          }
+        ]
+      }
+    },
+    "ODSAPILogBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": { "Fn::GetAtt": [
+            "SubnetODSAPI",
+            "VpcId"
+        ] }
+      }
+    },
+    "LogBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": { "Ref": "ODSAPILogBucket" },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AWSCloudTrailAclCheck20150319",
+              "Effect": "Allow",
+              "Principal": { "Service": "cloudtrail.amazonaws.com" },
+              "Action": "s3:GetBucketAcl",
+              "Resource": {
+                "Fn::Join": [ "", [
+                    "arn:aws:s3:::",
+                    { "Fn::GetAtt": [
+                        "SubnetODSAPI",
+                        "VpcId"
+                    ] }
+                  ]
+              ] }
+            },
+            {
+              "Sid": "AWSCloudTrailWrite20150319",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": { "Fn::FindInMap": [
+                    "RegionMap", 
+                    { "Ref": "AWS::Region" },
+                    "AWSLogsAcct"
+                ] }
+              },
+              "Action": "s3:PutObject",
+              "Resource": {
+                "Fn::Join": [ "", [
+                    "arn:aws:s3:::",
+                    { "Fn::GetAtt": [
+                        "SubnetODSAPI",
+                        "VpcId"
+                    ] },
+                    "/elblog/AWSLogs/",
+                    { "Ref": "AWS::AccountId" },
+                    "/*"
+                ] ]
+              },
+              "Condition": { "StringEquals": { "s3:x-amz-acl": "bucket-owner-full-control" } }
+            }
+          ]
+        }
+      }
+    },
+    "ServerAssumptionProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [ { "Ref": "ServerAssumptionRole" } ]
+      }
+    },
+    "ODSAPIFixedIPAddress": {
+          "Type": "AWS::EC2::EIP",
+          "Properties": {
+            "Domain": "vpc",
+            "Tags": [ { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-IPAddr" ]]} } ] 
+            
+          }
+    },
+    "ODSAPINetIface" : {
+      "Type" : "AWS::EC2::NetworkInterface",
+      "Properties" : {
+          "SubnetId" : { "Ref" : "SubnetODSAPI" },
+          "Description" :"Interface for all traffic to ODSAPI",
+          "GroupSet" : [ {"Ref" : "EdFiODSAPISecurityGroup"} ],
+          "SourceDestCheck" : "true",
+          "Tags": [ { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-NetIface" ]]} } ] 
+        }
+    },
+    "AssociateODSAPIAddress" : {
+      "Type" : "AWS::EC2::EIPAssociation",
+      "Properties" : {
+          "AllocationId" : { "Fn::GetAtt" : [ "ODSAPIFixedIPAddress", "AllocationId" ]},
+          "NetworkInterfaceId" : { "Ref" : "ODSAPINetIface" }
+      }
+    },
+    "ODSAPIServer": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": { "Ref": "0-CurrentWinAMI" },
+        "InstanceType": { "Ref": "0-SelectedInstanceType" },
+        "IamInstanceProfile": { "Ref": "ServerAssumptionProfile" },
+        "KeyName": { "Ref": "1-KeyName" },
+        "NetworkInterfaces": [ { "NetworkInterfaceId" : {"Ref": "ODSAPINetIface"}, "DeviceIndex": "0" } ],
+        "UserData": { 
+          "Fn::Base64": { "Fn::Join": ["", [
+            "<powershell>\n",
+            "function Install-ChocoGitPkg { Set-ExecutionPolicy Bypass -Scope Process -Force;[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'));",
+            "    $ChocoCmd=Get-Command \"choco.exe\" -ErrorAction SilentlyContinue; $ChocolateyInstall = Convert-Path \"$($ChocoCmd.Path)\\..\\..\"; Import-Module \"$env:ChocolateyInstall\\helpers\\chocolateyProfile.psm1\"; refreshenv;",
+            "    Start-Process -Wait -NoNewWindow -FilePath $ChocoCmd.Source -ArgumentList \"upgrade git\",\"-y\",\"--no-progress\"; Update-SessionEnvironment;}\n",
+            "$EdFiDir=\"C:\\Ed-Fi\";$ScriptDir=\"$EdFiDir\\scripts\";$repoURL=\"https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts\";New-Item -ItemType directory -Path $EdFiDir -ErrorAction SilentlyContinue;Set-Location $EdFiDir;Start-Transcript -Path \"$EdFiDir\\install.log\";",
+            "Install-ChocoGitPkg;$gitCmd=(Get-Command \"git.exe\").Source;Start-Process -Wait -NoNewWindow -FilePath $gitCmd -ArgumentList \"clone $repoURL $ScriptDir\";Set-Location $ScriptDir;Stop-Transcript;\n",
+            ".\\install_solution.ps1"
+            " -DnsName ", 
+            { "Ref" : "3-DnsName" },
+            " -AdminEmail ",
+            { "Ref" : "4-AdminEmail" },
+            " -DDNSUsername ",
+            { "Ref" : "5-DDNSUsername" },
+            " -DDNSPassword ",
+            { "Ref" : "6-DDNSPassword" },
+            " -SolutionName ",
+            { "Ref" : "2-SolutionName" },
+            "\n",
+            "</powershell>\n"
+          ] ] }
+        },
+        "Tags": [
+          { "Key": "VpcId", "Value": "EdFiDevVPC" },
+          { "Key": "Name", "Value": { "Fn::Join": ["", [ { "Ref" : "AWS::StackName" }, "-VM" ]]} }
+        ]
+      },
+      "DependsOn": [
+        "VPCGatewayAttachment",
+        "ODSAPIFixedIPAddress",
+        "ODSAPINetIface"
+      ]
+    }
+  },
+  "Outputs": {
+    "ODSAPIServerInstance" : {
+      "Description" : "ODS/API Server Instance on EC2",
+      "Value" : { "Ref": "ODSAPIServer" }
+    },
+    "APIDomainName": {
+      "Description": "ODS/API Public DNS Name",
+      "Value": {
+        "Fn::GetAtt": [
+          "ODSAPIServer",
+          "PublicDnsName"
+        ]
+      }
+    },
+    "APISrvIP": {
+      "Description": "ODS/API Server Public IP",
+      "Value": { "Ref": "ODSAPIFixedIPAddress" }
+    }
+  }
+}

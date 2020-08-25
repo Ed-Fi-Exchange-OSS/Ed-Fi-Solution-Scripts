@@ -1,0 +1,46 @@
+{
+    "solutions": [
+        {   "name": "ChronicAbsenteeism",
+            "chocoPackages": "tableau-desktop",
+            "repo": "github.com/Ed-Fi-Alliance/Ed-Fi-X-ChicoUSDTableauReports",
+            "installSubPath": "Chron-Abs",
+            "installer": "",
+            "EdFiVersion": "2.6.0",
+            "appLinks": [
+                {"type": "File", "name": "ChronAbs Attendance YTD Report", "URI": "TableauDesktop\\ATT YTD\\Tableau ATT YTD ODS.twbx" },
+                {"type": "File", "name": "ChronAbs Central Office Attendance Report", "URI": "TableauDesktop\\COA 2\\Tableau CAO2_3.2.twbx" },
+                {"type": "File", "name": "ChronAbs Suspensions YTD Report", "URI": "TableauDesktop\\SUSP YTD\\Tableau SUSP YTD 2019-2020 -ODS.twbx" },
+                {"type": "File", "name": "ChronAbs - Reports for Tableau Reader", "URI": "TableauReader" },
+                {"type": "URL", "name": "ChronAbs - Download Tableau Reader", "URI": "https://downloads.tableau.com/public/TableauPublicDesktop-64bit-2020-2-2.exe" },
+                {"type": "URL", "name": "Chronic Absenteeism Solution User Guide", "URI": "https://github.com/Ed-Fi-Alliance/Ed-Fi-X-ChicoUSDTableauReports" }
+            ]
+        },
+        {   "name": "ParentPortal",
+            "chocoPackages": "nodejs",
+            "repo": "github.com/Ed-Fi-Alliance/Ed-Fi-X-ParentPortal",
+            "installSubPath": "ParentPortal",
+            "installer": "",
+            "EdFiVersion": "3.4.0",
+            "appLinks": [
+                {"type": "File", "name": "ParentPortal - DevTest Project", "URI": "Student1.ParentPortal.sln" },
+                {"type": "URL", "name": "Ed-Fi Solution Parent Portal", "URI": "http://localhost/Student1.ParentPortal.Web/" },
+                {"type": "URL", "name": "Public Demo of Parent Portal", "URI": "http://parentportal.toolwise.net/" }
+            ]
+        },
+        {   "name": "Ed-Fi Solution Starter Kits",
+            "chocoPackages": "",
+            "repo": "",
+            "archive": "",
+            "installSubPath": ".",
+            "installer": "",
+            "EdFiVersion": "3.4.0",
+            "appLinks": [
+                {"type": "File", "name": "Installer files", "URI": "scripts" },
+                {"type": "URL", "name": "Installer on GitHub", "URI": "https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts" },
+                {"type": "URL", "name": "Solution Starter Kit Guides", "URI": "https://techdocs.ed-fi.org/display/ETKB/Ed-Fi+Solution+Starter+Kit+Guides" },
+                {"type": "URL", "name": "Ed-Fi Home", "URI": "https://www.ed-fi.org" },
+                {"type": "URL", "name": "Ed-Fi TechDocs", "URI": "https://techdocs.ed-fi.org" }
+            ]
+        }
+    ]
+}
