@@ -1,7 +1,7 @@
 #Requires -Version 5
 #Requires -RunAsAdministrator
 param (
-    $DnsName,
+    $DnsName="edfisolsrv",
     $AdminEmail,
     $DDNSUsername,
     $DDNSPassword,
