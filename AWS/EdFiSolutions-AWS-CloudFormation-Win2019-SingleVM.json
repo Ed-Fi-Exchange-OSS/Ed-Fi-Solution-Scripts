@@ -466,7 +466,16 @@
       "Description" : "ODS/API Server Instance on EC2",
       "Value" : { "Ref": "ODSAPIServer" }
     },
-    "APIDomainName": {
+    "EdFiSolutionHome": {
+      "Description": "Ed-Fi Solutions Landing Page",
+      "Value": { "Fn::Join": ["", [
+        "https://",
+        {"Fn::GetAtt": [ "ODSAPIServer", "PublicDnsName"]},
+        "/EdFi"
+        ] ]
+      }
+    },
+    "ServerDNSName": {
       "Description": "ODS/API Public DNS Name",
       "Value": {
         "Fn::GetAtt": [
