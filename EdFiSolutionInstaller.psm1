@@ -463,20 +463,20 @@ function Install-SqlServerModule {
 function Add-UserSQLIntegratedSecurity {
     [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
     param (
-        $Username = "IIS APPPOOL\DefaultAppPool",
+        $User = "IIS APPPOOL\DefaultAppPool",
         $IntegratedSecurityRole = 'sysadmin',   # Should this be less powerful?
         $SQLServerName="."                      # Local machine by default
     )
     $server = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
-    if (!($server.Logins.Contains($Username))) {
-        Write-Verbose "Adding $Username to $IntegratedSecurityRole on SQL Server: $SQLServerName"
-        $SqlUser = New-Object -TypeName Microsoft.SqlServer.Management.Smo.Login -ArgumentList $server, $Username
+    if (!($server.Logins.Contains($User))) {
+        Write-Verbose "Adding $User to $IntegratedSecurityRole on SQL Server: $SQLServerName"
+        $SqlUser = New-Object -TypeName Microsoft.SqlServer.Management.Smo.Login -ArgumentList $server, $User
         $SqlUser.LoginType = [Microsoft.SqlServer.Management.Smo.LoginType]::WindowsUser
         $sqlUser.PasswordPolicyEnforced = $false
         $SqlUser.Create()
         $serverRole = $server.Roles | Where-Object {$_.Name -eq $IntegratedSecurityRole}
-        $serverRole.AddMember($Username)
-        Write-Verbose "Added User: $Username to Role: $IntegratedSecurityRole for SQL Server: $SQLServerName"
+        $serverRole.AddMember($User)
+        Write-Verbose "Added User: $User to Role: $IntegratedSecurityRole for SQL Server: $SQLServerName"
     }
     else {
         Write-Verbose "User already configured for Integrated Security."

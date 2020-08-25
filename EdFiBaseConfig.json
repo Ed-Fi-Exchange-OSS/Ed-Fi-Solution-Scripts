@@ -1,9 +1,5 @@
 {
     "installType": "Staging",
-    "DnsName": "edfisolsrv",
-    "AdminEmail": "techsupport@ed-fi.org",
-    "DDNSUsername": "edfisolutions",
-    "GitPAT": "2a823fceef347552bd9d68091c44d6aec90111a3",
     "EdFiDir": "C:\\Ed-Fi",
     "DownloadPath": "C:\\Ed-Fi\\Downloads",
     "SolutionWebRoot": "C:\\Ed-Fi\\www",

@@ -2,12 +2,12 @@
   "AWSTemplateFormatVersion": "2010-09-09",
   "Description": "Instantiates development environments for installation of an Ed-Fi Operational Data Store (ODS) and API web server.",
   "Parameters": {
-    "0-CurrentWinAMI": {
+    "0CurrentWinAMI": {
       "Description": "Enter the Windows Server Base AMI from the EC2 Quick Start Instance list for your AWS region.\n Use Launch Instance under the EC2 Dashboard or Instances view to show the current list.\n Or visit: https://ec2.amazonaws.com/?Action=DescribeImages&Filter.1.Name=is-public&Filter.1.Value.1=true&Filter.2.Name=architecture&Filter.2.Value.1=x86_64&Filter.3.Name=platform&Filter.3.Value.1=windows&AUTHPARAMS",
       "Type": "String",
       "Default": "ami-029e27fb2fc8ce9d8"
     },
-    "0-SelectedInstanceType": {
+    "1SelectedInstanceType": {
       "Description": "EC2 instance type, Development machine = t3.medium. Testing = m4.large",
       "Type": "String",
       "Default": "t3.medium",
@@ -28,11 +28,11 @@
       ],
       "ConstraintDescription": "Must be a valid EC2 instance type."
     },
-    "1-KeyName": {
+    "2KeyName": {
       "Description": "Key Pair Name - You must create an EC2 Key Pair before launching this template; the private key (*.pem file) downloaded will be used to obtain the administrator password used to remotely log in to your EC2 instances (servers).",
       "Type": "AWS::EC2::KeyPair::KeyName"
     },
-    "2-SolutionName" : {
+    "3SolutionName" : {
       "Description": "Select a particular solution by name to install, or select \"\" (empty) to install all solutions available. Default: Install base Suite 3 ODS/API",
       "Type": "String",
       "Default": "Ed-Fi Solution Starter Kits",
@@ -44,31 +44,30 @@
       ],
       "ConstraintDescription": "Must be name of an available solution"  
     },
-    "3-DnsName" : {
+    "4DnsName" : {
         "Description": "DNS hostname to use for this server (if one exists)",
         "Type": "String",
-        "Default": "",
+        "Default": "demo.ed-fi.org",
         "AllowedPattern": "(.*)\\.(.*)",
         "ConstraintDescription": "Must be a valid DNS hostname: e.g. demo.ed-fi.org"  
     },
-    "4-AdminEmail" : {
+    "5AdminEmail" : {
         "Description": "Email address of administrative contact",
         "Type": "String",
-        "Default": "",
         "AllowedPattern": "(.*)@(.*)",
         "ConstraintDescription": "Must be a valid email address: e.g. techsupport@ed-fi.org"  
     },
-    "5-DDNSUsername": {
+    "6DDNSUsername": {
       "Description": "Username for the Dynamic DNS service",
       "Type": "String",
       "Default": "edfisolutions"
     },
-    "6-DDNSPassword": {
+    "7DDNSPassword": {
       "Description": "Password for the Dynamic DNS service",
       "Type": "String",
       "Default": "edfisolutions"
     },
-    "7-RemoteNetwork": {
+    "8RemoteNetwork": {
       "Description": "The IP address range that can be used to limit connectivity to the EC2 instances e.g. 65.36.34.0/24",
       "Type": "String",
       "MinLength": "9",
@@ -224,7 +223,7 @@
         "PortRange": { "From": "3389", "To": "3389" },
         "RuleAction": "deny",
         "Egress": "false",
-        "CidrBlock": { "Ref": "7-RemoteNetwork" }
+        "CidrBlock": { "Ref": "8RemoteNetwork" }
       }
     },
     "SubnetODSAPI": {
@@ -276,7 +275,7 @@
             "IpProtocol": "tcp",
             "FromPort": "3389",
             "ToPort": "3389",
-            "CidrIp": { "Ref": "7-RemoteNetwork" }
+            "CidrIp": { "Ref": "8RemoteNetwork" }
           }
         ],
         "SecurityGroupEgress": [
@@ -422,10 +421,10 @@
     "ODSAPIServer": {
       "Type": "AWS::EC2::Instance",
       "Properties": {
-        "ImageId": { "Ref": "0-CurrentWinAMI" },
-        "InstanceType": { "Ref": "0-SelectedInstanceType" },
+        "ImageId": { "Ref": "0CurrentWinAMI" },
+        "InstanceType": { "Ref": "1SelectedInstanceType" },
         "IamInstanceProfile": { "Ref": "ServerAssumptionProfile" },
-        "KeyName": { "Ref": "1-KeyName" },
+        "KeyName": { "Ref": "2KeyName" },
         "NetworkInterfaces": [ { "NetworkInterfaceId" : {"Ref": "ODSAPINetIface"}, "DeviceIndex": "0" } ],
         "UserData": { 
           "Fn::Base64": { "Fn::Join": ["", [
@@ -435,17 +434,17 @@
             "    Start-Process -Wait -NoNewWindow -FilePath $ChocoCmd.Source -ArgumentList \"upgrade git\",\"-y\",\"--no-progress\"; Update-SessionEnvironment;}\n",
             "$EdFiDir=\"C:\\Ed-Fi\";$ScriptDir=\"$EdFiDir\\scripts\";$repoURL=\"https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts\";New-Item -ItemType directory -Path $EdFiDir -ErrorAction SilentlyContinue;Set-Location $EdFiDir;Start-Transcript -Path \"$EdFiDir\\install.log\";",
             "Install-ChocoGitPkg;$gitCmd=(Get-Command \"git.exe\").Source;Start-Process -Wait -NoNewWindow -FilePath $gitCmd -ArgumentList \"clone $repoURL $ScriptDir\";Set-Location $ScriptDir;Stop-Transcript;\n",
-            ".\\install_solution.ps1"
+            ".\\install_solution.ps1",
             " -DnsName ", 
-            { "Ref" : "3-DnsName" },
+            { "Ref" : "4DnsName" },
             " -AdminEmail ",
-            { "Ref" : "4-AdminEmail" },
+            { "Ref" : "5AdminEmail" },
             " -DDNSUsername ",
-            { "Ref" : "5-DDNSUsername" },
+            { "Ref" : "6DDNSUsername" },
             " -DDNSPassword ",
-            { "Ref" : "6-DDNSPassword" },
+            { "Ref" : "7DDNSPassword" },
             " -SolutionName ",
-            { "Ref" : "2-SolutionName" },
+            { "Ref" : "3SolutionName" },
             "\n",
             "</powershell>\n"
           ] ] }

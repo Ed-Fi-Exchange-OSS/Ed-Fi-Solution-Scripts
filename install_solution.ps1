@@ -41,9 +41,6 @@ $SolutionsAppName = Get-ConfigParam $null $cfg.SolutionsAppName "Solutions"
 # Ed-Fi Solution Builder Script for Windows Powershell
 #
 $GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"} else {"2a823fceef347552bd9d68091c44d6aec90111a3:x-oauth-basic"}
-if ($null -eq $DnsName) {
-    $DnsName="edfisolsrv"
-}
 $hostOnly = $DnsName.Substring(0,$DnsName.IndexOf("."))
 if ($null -eq $hostOnly) {
     $hostOnly=="edfisolsrv"
@@ -158,10 +155,10 @@ Write-Verbose "SSL configuration for IIS complete"
 #
 # Add IIS special integrated user to SQL Server login 
 # Defaults: Add-IISUserSQLIntegratedSecurity -iisUser "IIS APPPOOL\DefaultAppPool" -IntegratedSecurityRole 'sysadmin' -SQLServerName "."
-Add-UserSQLIntegratedSecurity -Username $iisConfig.integratedSecurityUser
+Add-UserSQLIntegratedSecurity -User $iisConfig.integratedSecurityUser
 # Now get all of the Users group added to make this actually work
-$LocalUsers=Get-LocalGroupMember "Users" | Where-Object {$_.ObjectClass -match "User"} | Select-Object Name
-$LocalUsers | ForEach-Object { Add-UserSQLIntegratedSecurity -Username $_ }
+$LocalUsers=(Get-LocalGroupMember "Users" | Where-Object {$_.ObjectClass -match "User"}).Name
+$LocalUsers | ForEach-Object { Add-UserSQLIntegratedSecurity -User $_ }
 #
 # Get the list of Solutions from the config file
 $solutionsInstall = $solcfg.solutions | Where-Object {[string]::IsNullOrEmpty($SolutionName) -or $_.name -match $SolutionName}

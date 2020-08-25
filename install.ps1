@@ -1,7 +1,7 @@
 #Requires -Version 5
 #Requires -RunAsAdministrator
 param (
-    $DnsName="edfisolsrv",
+    $DnsName,
     $AdminEmail,
     $DDNSUsername,
     $DDNSPassword,
@@ -27,7 +27,7 @@ $gitCmd=(Get-Command "git.exe").Source
 Start-Process -Wait -NoNewWindow -FilePath $gitCmd -ArgumentList "clone $repoURL $ScriptDir"
 Set-Location $ScriptDir
 $installParams=@{
-    'Verbose'=$VerbosePreference
+    'Verbose'=$true
 }
 if (!([string]::IsNullOrEmpty($DnsName))) {
     $installParams['DnsName']=$DnsName
