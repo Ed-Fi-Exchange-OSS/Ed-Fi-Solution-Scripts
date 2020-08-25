@@ -38,7 +38,7 @@ This guide generally assumes default installation choices, but if at any point y
     From the **Windows Menu**, search for **PowerShell**, right click on it, and select **Run as Administrator**
 1. Run the installer by pasting this command in to the PowerShell window:
     ```powershell
-    Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts'))
+    Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts/raw/master/install.ps1'))
     ```
 1. The installer will take about 30-60 mins to download and install the components of your solution.
 1. When complete, you will find an **Ed-Fi Solutions** folder on your Desktop which you will use in the next steps.
