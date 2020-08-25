@@ -5,6 +5,12 @@
     "0CurrentWinAMI": {
       "Description": "Enter the Windows Server Base AMI from the EC2 Quick Start Instance list for your AWS region.\n Use Launch Instance under the EC2 Dashboard or Instances view to show the current list.\n Or visit: https://ec2.amazonaws.com/?Action=DescribeImages&Filter.1.Name=is-public&Filter.1.Value.1=true&Filter.2.Name=architecture&Filter.2.Value.1=x86_64&Filter.3.Name=platform&Filter.3.Value.1=windows&AUTHPARAMS",
       "Type": "String",
+      "AllowedValues": [
+        "ami-029e27fb2fc8ce9d8",
+        "ami-0239d3998515e9ed1",
+        "ami-032c2c4b952586f02",
+        "ami-08bcc13ad2c143073"
+      ],
       "Default": "ami-029e27fb2fc8ce9d8"
     },
     "1SelectedInstanceType": {
@@ -214,12 +220,60 @@
         "CidrBlock": "0.0.0.0/0"
       }
     },
+    "EphemeralIn": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "1040",
+        "Protocol": "6",
+        "PortRange": { "From": "30000", "To": "65535" },
+        "RuleAction": "allow",
+        "Egress": "false",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "EphemeralTcpOut": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "1050",
+        "Protocol": "6",
+        "PortRange": { "From": "30000", "To": "65535" },
+        "RuleAction": "allow",
+        "Egress": "true",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
+    "EphemeralUdpOut": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "1060",
+        "Protocol": "17",
+        "PortRange": { "From": "30000", "To": "65535" },
+        "RuleAction": "allow",
+        "Egress": "true",
+        "CidrBlock": "0.0.0.0/0"
+      }
+    },
     "RemoteAccessTCPRDPIn": {
       "Type": "AWS::EC2::NetworkAclEntry",
       "Properties": {
         "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
         "RuleNumber": "2000",
         "Protocol": "6",
+        "PortRange": { "From": "3389", "To": "3389" },
+        "RuleAction": "deny",
+        "Egress": "false",
+        "CidrBlock": { "Ref": "8RemoteNetwork" }
+      }
+    },
+    "RemoteAccessTCPRDPOut": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
+        "RuleNumber": "2010",
+        "Protocol": "17",
         "PortRange": { "From": "3389", "To": "3389" },
         "RuleAction": "deny",
         "Egress": "false",
