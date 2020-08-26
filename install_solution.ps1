@@ -158,7 +158,7 @@ Write-Verbose "SSL configuration for IIS complete"
 Add-UserSQLIntegratedSecurity -User $iisConfig.integratedSecurityUser
 # Now get all of the Users group added to make this actually work
 $LocalUsers=(Get-LocalGroupMember "Users" | Where-Object {$_.ObjectClass -match "User"}).Name
-if (!(($null -eq $LocalUsers) -or ($LocalUsers.Count -eq 0)) {
+if (!(($null -eq $LocalUsers) -or ($LocalUsers.Count -eq 0))) {
     $LocalUsers | ForEach-Object { Add-UserSQLIntegratedSecurity -User $_ }
 }
 #
