@@ -526,9 +526,9 @@
       "Value": { "Fn::Join": ["", [
         "https://",
         { "Fn::If": ["DnsNameCheck", 
-          { "Fn::Join": ["", [ " -DnsName ", { "Ref" : "4DnsName" } ]] },
-            {"Fn::GetAtt": [ "ODSAPIServer", "PublicDnsName"]} ] },
-          "/EdFi"
+          { "Ref" : "4DnsName" },
+          {"Fn::GetAtt": [ "ODSAPIServer", "PublicDnsName"]} ] },
+        "/EdFi"
         ] ]
       }
     },
