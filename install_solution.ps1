@@ -158,7 +158,9 @@ Write-Verbose "SSL configuration for IIS complete"
 Add-UserSQLIntegratedSecurity -User $iisConfig.integratedSecurityUser
 # Now get all of the Users group added to make this actually work
 $LocalUsers=(Get-LocalGroupMember "Users" | Where-Object {$_.ObjectClass -match "User"}).Name
-$LocalUsers | ForEach-Object { Add-UserSQLIntegratedSecurity -User $_ }
+if (!(($null -eq $LocalUsers) -or ($LocalUsers.Count -eq 0)) {
+    $LocalUsers | ForEach-Object { Add-UserSQLIntegratedSecurity -User $_ }
+}
 #
 # Get the list of Solutions from the config file
 $solutionsInstall = $solcfg.solutions | Where-Object {[string]::IsNullOrEmpty($SolutionName) -or $_.name -match $SolutionName}
@@ -242,9 +244,12 @@ $announcement = @"
 ***********************************************************************
 "@
 Write-Host $announcement
-Start-Process "https://localhost/EdFi"
-Start-Process "https://$DnsName/EdFi"
-Start-Sleep -Seconds 120
+if ($DnsName -eq $hostOnly) {
+    Start-Process "https://localhost/EdFi"
+}
+else {
+    Start-Process "https://$DnsName/EdFi"
+}
 Write-Verbose "Performing Windows Update"
 Stop-Transcript
 #

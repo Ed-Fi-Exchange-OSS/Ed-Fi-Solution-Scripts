@@ -525,8 +525,10 @@
       "Description": "Ed-Fi Solutions Landing Page",
       "Value": { "Fn::Join": ["", [
         "https://",
-        {"Fn::GetAtt": [ "ODSAPIServer", "PublicDnsName"]},
-        "/EdFi"
+        { "Fn::If": ["DnsNameCheck", 
+          { "Fn::Join": ["", [ " -DnsName ", { "Ref" : "4DnsName" } ]] },
+            {"Fn::GetAtt": [ "ODSAPIServer", "PublicDnsName"]} ] },
+          "/EdFi"
         ] ]
       }
     },

@@ -355,10 +355,9 @@ function Enable-WebServerSSL {
         $certStoreLocation = "Cert:\LocalMachine\My"
         try {
             # Stop the IIS Site while we fix SSL
-            Stop-IISSite -Name $defaultSiteName
+            Stop-IISSite -Name $defaultSiteName -Confirm:$false
             Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
             $httpsBinding = New-IISSiteBinding -name "$defaultSiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
-            return
         }
         catch {
             Write-Error "Error while binding IIS to $defaultSiteName on https for localhost with Certificate:$selfSignedCert.`n Error: $_"
@@ -368,11 +367,11 @@ function Enable-WebServerSSL {
             Start-IISSite -Name $defaultSiteName
         }
     }
-    # In case you passed in localhost, don't go tryin to create a cert for that, not even a little bit.
-    if (!($HostDNS -like "*localhost*")) {
+    elseif (!($HostDNS -like "*localhost*")) {
+        # In case you passed in localhost somehow, don't go tryin to create a cert for that, not even a little bit.
         # Add a binding to the given hostname in case the system does not recognize that name as being local yet
         try {
-            Stop-IISSite -Name $defaultSiteName
+            Stop-IISSite -Name $defaultSiteName -Confirm:$false
             Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:80:$HostDNS`" -protocol http`n"
             $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:80:$HostDNS" -protocol "http"
         }
@@ -386,46 +385,47 @@ function Enable-WebServerSSL {
         # free Let's Encrypt cert for given hostname
         $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail
         # In case of a null cert from silent fail, we'll try to bind anyway with Self-Signed
+        if ($null -ne $newCert) { 
+            try {
+                Stop-IISSite -Name $defaultSiteName -Confirm:$false
+                Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:$HostDNS`" -protocol https -CertificateThumbPrint `"$($newCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
+                $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:$HostDNS" -protocol https -CertificateThumbPrint "$($newCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
+            }
+            catch {
+                Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with Certificate:$LESignedCert `n Error: $_ `n"
+            }
+            finally {
+                # Restart IIS Site
+                Start-IISSite -Name $defaultSiteName
+            }
+            try {
+                # Now add trusted self-signed cert to localhost, may require some manual re-map in IIS Manager. 
+                $certStoreLocation = "Cert:\LocalMachine\My"
+                Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:localhost`" -protocol https -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
+                $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:localhost" -protocol https -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
+            }
+            catch {
+                Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with Certificate:$LESignedCert `n Error: $_ `n"
+            }
+        }
+        else {
+            try{
+                Stop-IISSite -Name $defaultSiteName
+                Write-Verbose "Warning:`n Couldn't get Let's Encrypt certificate, will fallback to using self-signed cert for localhost and DNS name if given`n"
+                $certStoreLocation = "Cert:\LocalMachine\My"
+                Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
+                $httpsBinding = New-IISSiteBinding -name "$defaultSiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
+            }
+            catch {
+                Write-Error "Error while binding IIS to $defaultSiteName on https for * (all hosts) with self-signed certificate:$selfSignedCert `n Error: $_ `n"
+            }
+            finally {
+                # Restart IIS Site
+                Start-IISSite -Name $defaultSiteName
+            }
+        }
     }
-    if ($null -ne $newCert) { 
-        try {
-            Stop-IISSite -Name $defaultSiteName
-            Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:$HostDNS`" -protocol https -CertificateThumbPrint `"$($newCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
-            $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:$HostDNS" -protocol https -CertificateThumbPrint "$($newCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
-        }
-        catch {
-            Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with Certificate:$LESignedCert `n Error: $_ `n"
-        }
-        finally {
-            # Restart IIS Site
-            Start-IISSite -Name $defaultSiteName
-        }
-        try {
-            # Now add trusted self-signed cert to localhost, may require some manual re-map in IIS Manager. 
-            $certStoreLocation = "Cert:\LocalMachine\My"
-            Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:localhost`" -protocol https -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
-            $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:localhost" -protocol https -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
-        }
-        catch {
-            Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with Certificate:$LESignedCert `n Error: $_ `n"
-        }
-    }
-    else {
-        try{
-            Stop-IISSite -Name $defaultSiteName
-            Write-Verbose "Warning:`n Couldn't get Let's Encrypt certificate, will fallback to using self-signed cert for localhost and DNS name if given`n"
-            $certStoreLocation = "Cert:\LocalMachine\My"
-            Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
-            $httpsBinding = New-IISSiteBinding -name "$defaultSiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
-        }
-        catch {
-            Write-Error "Error while binding IIS to $defaultSiteName on https for * (all hosts) with self-signed certificate:$selfSignedCert `n Error: $_ `n"
-        }
-        finally {
-            # Restart IIS Site
-            Start-IISSite -Name $defaultSiteName
-        }
-    }
+
     #
     Write-Verbose "IIS is configured for https on $defaultSiteName as $httpsBinding`n "
 }
