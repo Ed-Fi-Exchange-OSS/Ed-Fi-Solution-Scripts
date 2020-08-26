@@ -164,7 +164,7 @@ $LocalUsers | ForEach-Object { Add-UserSQLIntegratedSecurity -User $_ }
 $solutionsInstall = $solcfg.solutions | Where-Object {[string]::IsNullOrEmpty($SolutionName) -or $_.name -match $SolutionName}
 if ($solutionsInstall.Count -eq 0) {
     Write-Verbose "No solutions found matching: $SolutionName `n Check your configuration file and verify the name given for -SolutionName."
-    $SolutionName="Ed-Fi Solution Starter Kits"
+    $SolutionName="base"
     $solutionsInstall = $cfg.solutions | Where-Object {$_.name -match $SolutionName}
 }
 # Select versions required by listed solutions
@@ -184,6 +184,9 @@ Write-Verbose "Data Import NOT installed"
 # Please edit the "solutions" section of the config file as needed
 # Refer to Configuration guide:
 foreach ($sol in $solutionsInstall) {
+    if ($sol.name -eq "base") {
+        $sol.name="Ed-Fi Solution Starter Kits"
+    }
     Write-Verbose "Installing $($sol.name)"
     if (!([string]::IsNullOrEmpty($sol.chocoPackages))) {
         Install-Choco $sol.chocoPackages -Verbose:$VerbosePreference

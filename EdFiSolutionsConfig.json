@@ -27,7 +27,7 @@
                 {"type": "URL", "name": "Public Demo of Parent Portal", "URI": "http://parentportal.toolwise.net/" }
             ]
         },
-        {   "name": "Ed-Fi Solution Starter Kits",
+        {   "name": "base",
             "chocoPackages": "",
             "repo": "",
             "archive": "",

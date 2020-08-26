@@ -502,7 +502,7 @@
             { "Fn::If": ["AllSolutions", 
               "",
               { "Fn::If": ["NoSolutions", 
-                " -SolutionName none ",
+                " -SolutionName base ",
                 { "Fn::Join": ["", [ " -SolutionName \"", { "Ref" : "3SolutionName" }, "\"" ] ] }
                 ] } ] },
             "\n",
