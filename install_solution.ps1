@@ -1,4 +1,4 @@
-[cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+[cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
 param(
     [string] $config = "$PSScriptRoot\EdFiBaseConfig.json",
     [string] $solutions = "$PSScriptRoot\EdFiSolutionsConfig.json",

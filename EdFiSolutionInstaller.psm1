@@ -1,5 +1,5 @@
 function Get-ConfigParam {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [string]$param,
         [string]$configParam,
@@ -20,7 +20,7 @@ function Get-ConfigParam {
     }
 }
 function Enable-RequiredWindowsFeatures {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param ()
     $tooVerbose=Add-WindowsCapability -Online -Name OpenSSH.Client
     Write-Verbose "$tooVerbose"
@@ -31,7 +31,7 @@ function Enable-RequiredWindowsFeatures {
 #    Install-WindowsFeature -name RSAT-AD-PowerShell
 }
 function Install-Choco {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $Packages,
         [string] $Version,
@@ -69,7 +69,7 @@ function Install-Choco {
     Update-SessionEnvironment
 }
 function Copy-GitRepo {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $repoURL,
         [string] $InstallPath,
@@ -100,7 +100,7 @@ function Copy-GitRepo {
     }
 }
 function Copy-WebArchive {
-    [CmdletBinding(DefaultParameterSetName='FilePathSet',HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [CmdletBinding(DefaultParameterSetName='FilePathSet',HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory=$true, ParameterSetName = 'FilePathSet')]
         [Parameter(Mandatory=$true, ParameterSetName = 'DownloadPathSet')]
@@ -172,7 +172,7 @@ function Copy-WebArchive {
     Write-Verbose "Expand-Archive: $tooVerbose"
 }
 function Install-NugetPackage {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $packageName,
         [string] $version,
@@ -204,7 +204,7 @@ function Install-NugetPackage {
     return $downloadedPackagePath
 }
 function Get-ExternalIP(){
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param ()
     try {
         $ExtIP = Invoke-WebRequest -Uri "https://showextip.azurewebsites.net/" -Method Get -TimeoutSec 10 -UseBasicParsing
@@ -223,7 +223,7 @@ function Get-ExternalIP(){
     }
 }
 function Update-DynDNS {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $HostDNS,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $IP,
@@ -252,7 +252,7 @@ function Update-DynDNS {
 # Ensure all prerequisites are installed.
 # Region: Self Signed Certificate Functions
 function Get-SelfSignedCertificate {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [string] $DnsName,
         [string] $CertName="localhost Self-Signed",
@@ -285,7 +285,7 @@ function Get-SelfSignedCertificate {
     return $cert
 }
 function Get-LetsEncSSLCert {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $DnsName,
         $CertName="Ed-Fi Solution Installer",
@@ -328,7 +328,7 @@ function Get-LetsEncSSLCert {
     return $null
 }
 function Enable-WebServerSSL {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [string] $InstallPath,
         [string] $HostDNS,
@@ -410,7 +410,7 @@ function Enable-WebServerSSL {
         }
         else {
             try{
-                Stop-IISSite -Name $defaultSiteName
+                Stop-IISSite -Name $defaultSiteName -Confirm:$false
                 Write-Verbose "Warning:`n Couldn't get Let's Encrypt certificate, will fallback to using self-signed cert for localhost and DNS name if given`n"
                 $certStoreLocation = "Cert:\LocalMachine\My"
                 Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
@@ -430,7 +430,7 @@ function Enable-WebServerSSL {
     Write-Verbose "IIS is configured for https on $defaultSiteName as $httpsBinding`n "
 }
 function Enable-TCPonSQLInstance {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param ([string] $SQLINST = 'MSSQLSERVER') 
     #
     # Enable TCP on the default SQL instance.
@@ -445,7 +445,7 @@ function Enable-TCPonSQLInstance {
     $TCPBinding.Alter()
 }
 function Set-WeakPasswordComplexity { 
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param ([string] $FilePath="C:\Ed-Fi")
      # Verify that the file folder is present
      if (! $(Try { Test-Path $FilePath.trim() } Catch { $false }) ) {
@@ -462,7 +462,7 @@ function Set-WeakPasswordComplexity {
     Remove-Item -force $secfile -confirm:$false
 }
 function Install-SqlServerModule {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param()
     # This "global" prereq is needed even when the user has configured a postgres install
     # 
@@ -482,7 +482,7 @@ function Install-SqlServerModule {
     }
 }
 function Add-UserSQLIntegratedSecurity {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         $User = "IIS APPPOOL\DefaultAppPool",
         $IntegratedSecurityRole = 'sysadmin',   # Should this be less powerful?
@@ -509,7 +509,7 @@ function Add-UserSQLIntegratedSecurity {
     }
 }
 function Install-MSSQLserverExpress {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [string] $FilePath="C:\Ed-Fi\Downloads",
         [string] $MSSQLEURL="https://download.microsoft.com/download/8/4/c/84c6c430-e0f5-476d-bf43-eaaa222a72e0/SQLEXPR_x64_ENU.exe",
@@ -583,7 +583,7 @@ function Install-MSSQLserverExpress {
         #
 }
 function Initialize-Postgresql {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param ()   
     #
     # Check the Postgres install
@@ -608,7 +608,7 @@ function Initialize-Postgresql {
     if (!$Env:PGPORT) { $Env:PGPORT = "5432" }
 }
 function Set-PermissionsOnPath {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory=$True)]$FilePath, 
         [Parameter(Mandatory=$True)]$User, 
@@ -638,7 +638,7 @@ function Set-PermissionsOnPath {
     }
 }
 function Add-DesktopAppLinks {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         $AppURIs,
         $solName=$null
@@ -678,7 +678,7 @@ function Add-DesktopAppLinks {
     }
 }
     function Add-WebAppLinks {
-        [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+        [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
         param (
             $AppURIs,
             $DnsName,
@@ -726,7 +726,7 @@ function Add-DesktopAppLinks {
         Write-Debug $solTemplate
     }
     function Publish-WebSite {
-        [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+        [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
         param (
             $SolutionWebDir="C:\Ed-Fi\www",
             $VirtualDirectoryName="EdFiWWW",

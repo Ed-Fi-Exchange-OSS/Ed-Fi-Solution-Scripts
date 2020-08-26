@@ -7,7 +7,7 @@ if (!(Get-Command "Install-Choco" -ErrorAction SilentlyContinue)) {
     Import-Module EdFiSolutionInstaller.psm1 # Need thus module too
 }
 Function Install-BaseEdFi {
-    [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         $InstallType,       # $InstallType can be "Production", "Staging", or "Sandbox"
         $SuiteVersion,      # $SuiteVersion includes minor revision numbers for now e.g. "3.4.0" or "2.6.0" but will change with semantic versioning
