@@ -372,10 +372,16 @@ function Enable-WebServerSSL {
     if (!($HostDNS -like "*localhost*")) {
         # Add a binding to the given hostname in case the system does not recognize that name as being local yet
         try {
-            New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:80:$HostDNS" -protocol "http"
+            Stop-IISSite -Name $defaultSiteName
+            Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:80:$HostDNS`" -protocol http`n"
+            $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:80:$HostDNS" -protocol "http"
         }
         catch {
             Write-Verbose "Warning:`n Failed to set IIS binding for $HostDNS on http.`n Attempting to get LE cert anyway `n  Exception was: $_ `n"
+        }
+        finally {
+            # Restart IIS Site
+            Start-IISSite -Name $defaultSiteName
         }
         # free Let's Encrypt cert for given hostname
         $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail
@@ -383,11 +389,16 @@ function Enable-WebServerSSL {
     }
     if ($null -ne $newCert) { 
         try {
+            Stop-IISSite -Name $defaultSiteName
             Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:$HostDNS`" -protocol https -CertificateThumbPrint `"$($newCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
             $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:$HostDNS" -protocol https -CertificateThumbPrint "$($newCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
         }
         catch {
             Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with Certificate:$LESignedCert `n Error: $_ `n"
+        }
+        finally {
+            # Restart IIS Site
+            Start-IISSite -Name $defaultSiteName
         }
         try {
             # Now add trusted self-signed cert to localhost, may require some manual re-map in IIS Manager. 
@@ -400,10 +411,20 @@ function Enable-WebServerSSL {
         }
     }
     else {
-        Write-Verbose "Warning:`n Couldn't get Let's Encrypt certificate, will fallback to using self-signed cert for localhost and DNS name if given`n"
-        $certStoreLocation = "Cert:\LocalMachine\My"
-        Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
-        $httpsBinding = New-IISSiteBinding -name "$defaultSiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
+        try{
+            Stop-IISSite -Name $defaultSiteName
+            Write-Verbose "Warning:`n Couldn't get Let's Encrypt certificate, will fallback to using self-signed cert for localhost and DNS name if given`n"
+            $certStoreLocation = "Cert:\LocalMachine\My"
+            Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
+            $httpsBinding = New-IISSiteBinding -name "$defaultSiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
+        }
+        catch {
+            Write-Error "Error while binding IIS to $defaultSiteName on https for * (all hosts) with self-signed certificate:$selfSignedCert `n Error: $_ `n"
+        }
+        finally {
+            # Restart IIS Site
+            Start-IISSite -Name $defaultSiteName
+        }
     }
     #
     Write-Verbose "IIS is configured for https on $defaultSiteName as $httpsBinding`n "
@@ -467,19 +488,24 @@ function Add-UserSQLIntegratedSecurity {
         $IntegratedSecurityRole = 'sysadmin',   # Should this be less powerful?
         $SQLServerName="."                      # Local machine by default
     )
-    $server = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
-    if (!($server.Logins.Contains($User))) {
-        Write-Verbose "Adding $User to $IntegratedSecurityRole on SQL Server: $SQLServerName"
-        $SqlUser = New-Object -TypeName Microsoft.SqlServer.Management.Smo.Login -ArgumentList $server, $User
-        $SqlUser.LoginType = [Microsoft.SqlServer.Management.Smo.LoginType]::WindowsUser
-        $sqlUser.PasswordPolicyEnforced = $false
-        $SqlUser.Create()
-        $serverRole = $server.Roles | Where-Object {$_.Name -eq $IntegratedSecurityRole}
-        $serverRole.AddMember($User)
-        Write-Verbose "Added User: $User to Role: $IntegratedSecurityRole for SQL Server: $SQLServerName"
+    try {
+        $server = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
+        if (!($server.Logins.Contains($User))) {
+            Write-Verbose "Adding $User to $IntegratedSecurityRole on SQL Server: $SQLServerName"
+            $SqlUser = New-Object -TypeName Microsoft.SqlServer.Management.Smo.Login -ArgumentList $server, $User
+            $SqlUser.LoginType = [Microsoft.SqlServer.Management.Smo.LoginType]::WindowsUser
+            $sqlUser.PasswordPolicyEnforced = $false
+            $SqlUser.Create()
+            $serverRole = $server.Roles | Where-Object {$_.Name -eq $IntegratedSecurityRole}
+            $serverRole.AddMember($User)
+            Write-Verbose "Added User: $User to Role: $IntegratedSecurityRole for SQL Server: $SQLServerName"
+        }
+        else {
+            Write-Verbose "User already configured for Integrated Security."
+        }    
     }
-    else {
-        Write-Verbose "User already configured for Integrated Security."
+    catch {
+        Write-Error "Failed to add user: $User to SQL Server role: $IntegratedSecurityRole on server: $SQLServerName`n Error: $_"
     }
 }
 function Install-MSSQLserverExpress {
@@ -588,22 +614,28 @@ function Set-PermissionsOnPath {
         [Parameter(Mandatory=$True)]$User, 
         [Parameter(Mandatory=$True)]$Perms
         )
-    $ACL = Get-Acl $FilePath
-    $InheritanceFlag = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
-    $PropagationFlag = [System.Security.AccessControl.PropagationFlags]"None"
-    $AccessControlType =[System.Security.AccessControl.AccessControlType]::Allow
-    $Account = New-Object System.Security.Principal.NTAccount($User)
-    if ("NoAccess" -eq $Perms) {  # This is meant to Deny CRUD
-        $FileSystemRights = [System.Security.AccessControl.FileSystemRights]"Modify,ReadAndExecute"
-        $FileSystemAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($Account, $FileSystemRights, $InheritanceFlag, $PropagationFlag, $AccessControlType)
-        $ACL.RemoveAccessRuleAll($FileSystemAccessRule)
+    try 
+    {
+        $ACL = Get-Acl $FilePath
+        $InheritanceFlag = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
+        $PropagationFlag = [System.Security.AccessControl.PropagationFlags]"None"
+        $AccessControlType =[System.Security.AccessControl.AccessControlType]::Allow
+        $Account = New-Object System.Security.Principal.NTAccount($User)
+        if ("NoAccess" -eq $Perms) {  # This is meant to Deny CRUD
+            $FileSystemRights = [System.Security.AccessControl.FileSystemRights]"Modify,ReadAndExecute"
+            $FileSystemAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($Account, $FileSystemRights, $InheritanceFlag, $PropagationFlag, $AccessControlType)
+            $ACL.RemoveAccessRuleAll($FileSystemAccessRule)
+        }
+        else {
+            $FileSystemRights = [System.Security.AccessControl.FileSystemRights]$Perms
+            $FileSystemAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($Account, $FileSystemRights, $InheritanceFlag, $PropagationFlag, $AccessControlType)
+            $ACL.SetAccessRule($FileSystemAccessRule) # or $ACL.AddAccessRule($FileSystemAccessRule)
+        }
+        Set-Acl $FilePath $ACL
     }
-    else {
-        $FileSystemRights = [System.Security.AccessControl.FileSystemRights]$Perms
-        $FileSystemAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($Account, $FileSystemRights, $InheritanceFlag, $PropagationFlag, $AccessControlType)
-        $ACL.SetAccessRule($FileSystemAccessRule) # or $ACL.AddAccessRule($FileSystemAccessRule)
+    catch {
+        Write-Error "Unable to add user: $User to path: $FilePath with permissions: $Perms`n Error: $_"
     }
-    Set-Acl $FilePath $ACL
 }
 function Add-DesktopAppLinks {
     [cmdletbinding(HelpUri="https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts")]

@@ -73,18 +73,16 @@
     }
   },
   "Conditions": {
-    "AllSolutions" : {
-      "Fn::Equals": [ { "Ref": "3SolutionName" }, "All" ]
-    },
-    "NoSolutions" : {
-      "Fn::Equals": [ { "Ref": "3SolutionName" }, "None" ]
-    },
+    "AllSolutions" : { "Fn::Equals": [ { "Ref": "3SolutionName" }, "All" ] },
+    "NoSolutions" : { "Fn::Equals": [ { "Ref": "3SolutionName" }, "None" ] },
     "DDNSCheck" : {
       "Fn::And" : [
         { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "6DDNSUsername" }, "" ] }] },
         { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "7DDNSPassword" }, "" ] }] }
       ]
-    }
+    },
+    "DnsNameCheck" : 
+        { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "4DnsName" }, "" ] }] }
   },
   "Mappings": {
     "RegionMap": {
@@ -232,7 +230,7 @@
         "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
         "RuleNumber": "1040",
         "Protocol": "6",
-        "PortRange": { "From": "30000", "To": "65535" },
+        "PortRange": { "From": "20000", "To": "65535" },
         "RuleAction": "allow",
         "Egress": "false",
         "CidrBlock": "0.0.0.0/0"
@@ -244,7 +242,7 @@
         "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
         "RuleNumber": "1050",
         "Protocol": "6",
-        "PortRange": { "From": "30000", "To": "65535" },
+        "PortRange": { "From": "10000", "To": "65535" },
         "RuleAction": "allow",
         "Egress": "true",
         "CidrBlock": "0.0.0.0/0"
@@ -256,7 +254,7 @@
         "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
         "RuleNumber": "1060",
         "Protocol": "17",
-        "PortRange": { "From": "30000", "To": "65535" },
+        "PortRange": { "From": "10000", "To": "65535" },
         "RuleAction": "allow",
         "Egress": "true",
         "CidrBlock": "0.0.0.0/0"
@@ -274,7 +272,7 @@
         "CidrBlock": { "Ref": "8RemoteNetwork" }
       }
     },
-    "RemoteAccessTCPRDPOut": {
+    "RemoteAccessUDPRDPIn": {
       "Type": "AWS::EC2::NetworkAclEntry",
       "Properties": {
         "NetworkAclId": { "Ref": "ODSAPINetworkAcl" },
@@ -491,9 +489,10 @@
             "    Start-Process -Wait -NoNewWindow -FilePath $ChocoCmd.Source -ArgumentList \"upgrade git\",\"-y\",\"--no-progress\"; Update-SessionEnvironment;}\n",
             "$EdFiDir=\"C:\\Ed-Fi\";$ScriptDir=\"$EdFiDir\\scripts\";$repoURL=\"https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts\";New-Item -ItemType directory -Path $EdFiDir -ErrorAction SilentlyContinue;Set-Location $EdFiDir;Start-Transcript -Path \"$EdFiDir\\install.log\";",
             "Install-ChocoGitPkg;$gitCmd=(Get-Command \"git.exe\").Source;Start-Process -Wait -NoNewWindow -FilePath $gitCmd -ArgumentList \"clone $repoURL $ScriptDir\";Set-Location $ScriptDir;Stop-Transcript;\n",
-            ".\\install_solution.ps1",
-            " -DnsName ", 
-            { "Ref" : "4DnsName" },
+            ".\\install_solution.ps1 -Verbose",
+            { "Fn::If": ["DnsNameCheck", 
+              { "Fn::Join": ["", [ " -DnsName ", { "Ref" : "4DnsName" } ]] },
+              "" ] },
             " -AdminEmail ",
             { "Ref" : "5AdminEmail" },
             { "Fn::If": ["DDNSCheck", 

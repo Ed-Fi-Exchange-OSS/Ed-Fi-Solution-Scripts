@@ -40,7 +40,7 @@ else {
 $SolutionsAppName = Get-ConfigParam $null $cfg.SolutionsAppName "Solutions"
 # Ed-Fi Solution Builder Script for Windows Powershell
 #
-$GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"} else {"2a823fceef347552bd9d68091c44d6aec90111a3:x-oauth-basic"}
+$GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"} else {"fcf5e80dbcf4d799efe01da2017f5add3af9bf55:x-oauth-basic"}
 $hostOnly=$DnsName
 if ($DnsName.IndexOf(".") -gt 1) {
     $hostOnly = $DnsName.Substring(0,$DnsName.IndexOf("."))
@@ -193,7 +193,7 @@ foreach ($sol in $solutionsInstall) {
     }
     if (!([string]::IsNullOrEmpty($sol.repo))) {
         if (!($sol.repo -like "http*")) {
-            $repoURL="https://$GitPrefix@$($sol.repo)"
+            $repoURL="https://$($GitPrefix)@$($sol.repo)"
         }
         else {
             $repoURL=$sol.repo
