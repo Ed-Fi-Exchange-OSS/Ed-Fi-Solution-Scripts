@@ -2,17 +2,6 @@
   "AWSTemplateFormatVersion": "2010-09-09",
   "Description": "Instantiates development environments for installation of an Ed-Fi Operational Data Store (ODS) and API web server.",
   "Parameters": {
-    "0CurrentWinAMI": {
-      "Description": "Enter the Windows Server Base AMI from the EC2 Quick Start Instance list for your AWS region.\n Use Launch Instance under the EC2 Dashboard or Instances view to show the current list.\n Or visit: https://ec2.amazonaws.com/?Action=DescribeImages&Filter.1.Name=is-public&Filter.1.Value.1=true&Filter.2.Name=architecture&Filter.2.Value.1=x86_64&Filter.3.Name=platform&Filter.3.Value.1=windows&AUTHPARAMS",
-      "Type": "String",
-      "AllowedValues": [
-        "ami-029e27fb2fc8ce9d8",
-        "ami-0239d3998515e9ed1",
-        "ami-032c2c4b952586f02",
-        "ami-08bcc13ad2c143073"
-      ],
-      "Default": "ami-029e27fb2fc8ce9d8"
-    },
     "1SelectedInstanceType": {
       "Description": "EC2 instance type, Development machine = t3.medium. Testing = m4.large",
       "Type": "String",
@@ -39,14 +28,14 @@
       "Type": "AWS::EC2::KeyPair::KeyName"
     },
     "3SolutionName" : {
-      "Description": "Select a particular solution by name to install, or select \"\" (empty) to install all solutions available. Default: Install base Suite 3 ODS/API",
+      "Description": "Select a particular solution by name to install, or select All to install all solutions available. Default: None to install only the base Suite 3 ODS/API",
       "Type": "String",
-      "Default": "Ed-Fi Solution Starter Kits",
+      "Default": "None",
       "AllowedValues": [
-        "",
+        "All",
         "ChronicAbsenteeism",
         "ParentPortal",
-        "Ed-Fi Solution Starter Kits"
+        "None"
       ],
       "ConstraintDescription": "Must be name of an available solution"  
     },
@@ -71,7 +60,7 @@
     "7DDNSPassword": {
       "Description": "Password for the Dynamic DNS service",
       "Type": "String",
-      "Default": "edfisolutions"
+      "Default": ""
     },
     "8RemoteNetwork": {
       "Description": "The IP address range that can be used to limit connectivity to the EC2 instances e.g. 65.36.34.0/24",
@@ -83,24 +72,41 @@
       "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
     }
   },
-  "Conditions": {},
+  "Conditions": {
+    "AllSolutions" : {
+      "Fn::Equals": [ { "Ref": "3SolutionName" }, "All" ]
+    },
+    "NoSolutions" : {
+      "Fn::Equals": [ { "Ref": "3SolutionName" }, "None" ]
+    },
+    "DDNSCheck" : {
+      "Fn::And" : [
+        { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "6DDNSUsername" }, "" ] }] },
+        { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "7DDNSPassword" }, "" ] }] }
+      ]
+    }
+  },
   "Mappings": {
     "RegionMap": {
       "us-east-1": {
         "AMILookupS3Bucket": "winami1.lambda.edfi.org",
-        "AWSLogsAcct": "127311923021"
+        "AWSLogsAcct": "127311923021",
+        "AMI": "ami-032c2c4b952586f02"
       },
       "us-east-2": {
         "AMILookupS3Bucket": "winami2.lambda.edfi.org",
-        "AWSLogsAcct": "033677994240"
+        "AWSLogsAcct": "033677994240",
+        "AMI": "ami-0239d3998515e9ed1"
       },
       "us-west-1": {
         "AMILookupS3Bucket": "winami3.lambda.edfi.org",
-        "AWSLogsAcct": "027434742980"
+        "AWSLogsAcct": "027434742980",
+        "AMI": "ami-08bcc13ad2c143073"
       },
       "us-west-2": {
         "AMILookupS3Bucket": "winami4.lambda.edfi.org",
-        "AWSLogsAcct": "797873946194"
+        "AWSLogsAcct": "797873946194",
+        "AMI": "ami-029e27fb2fc8ce9d8"
       }
     }
   },
@@ -383,10 +389,7 @@
     "ODSAPILogBucket": {
       "Type": "AWS::S3::Bucket",
       "Properties": {
-        "BucketName": { "Fn::GetAtt": [
-            "SubnetODSAPI",
-            "VpcId"
-        ] }
+        "BucketName": { "Fn::GetAtt": [ "SubnetODSAPI", "VpcId" ] }
       }
     },
     "LogBucketPolicy": {
@@ -475,7 +478,7 @@
     "ODSAPIServer": {
       "Type": "AWS::EC2::Instance",
       "Properties": {
-        "ImageId": { "Ref": "0CurrentWinAMI" },
+        "ImageId": { "Fn::FindInMap" : [ "RegionMap", { "Ref" : "AWS::Region" }, "AMI" ]},
         "InstanceType": { "Ref": "1SelectedInstanceType" },
         "IamInstanceProfile": { "Ref": "ServerAssumptionProfile" },
         "KeyName": { "Ref": "2KeyName" },
@@ -493,12 +496,15 @@
             { "Ref" : "4DnsName" },
             " -AdminEmail ",
             { "Ref" : "5AdminEmail" },
-            " -DDNSUsername ",
-            { "Ref" : "6DDNSUsername" },
-            " -DDNSPassword ",
-            { "Ref" : "7DDNSPassword" },
-            " -SolutionName ",
-            { "Ref" : "3SolutionName" },
+            { "Fn::If": ["DDNSCheck", 
+              { "Fn::Join": ["", [ " -DDNSUsername ", { "Ref" : "6DDNSUsername" }, " -DDNSPassword ", { "Ref" : "7DDNSPassword" } ]] },
+              "" ] },
+            { "Fn::If": ["AllSolutions", 
+              "",
+              { "Fn::If": ["NoSolutions", 
+                " -SolutionName none ",
+                { "Fn::Join": ["", [ " -SolutionName \"", { "Ref" : "3SolutionName" }, "\"" ] ] }
+                ] } ] },
             "\n",
             "</powershell>\n"
           ] ] }
@@ -516,11 +522,7 @@
     }
   },
   "Outputs": {
-    "ODSAPIServerInstance" : {
-      "Description" : "ODS/API Server Instance on EC2",
-      "Value" : { "Ref": "ODSAPIServer" }
-    },
-    "EdFiSolutionHome": {
+    "1EdFiSolutionHome": {
       "Description": "Ed-Fi Solutions Landing Page",
       "Value": { "Fn::Join": ["", [
         "https://",
@@ -529,18 +531,17 @@
         ] ]
       }
     },
-    "ServerDNSName": {
+    "2ServerDNSName": {
       "Description": "ODS/API Public DNS Name",
-      "Value": {
-        "Fn::GetAtt": [
-          "ODSAPIServer",
-          "PublicDnsName"
-        ]
-      }
+      "Value": { "Fn::GetAtt": ["ODSAPIServer", "PublicDnsName" ] }
     },
-    "APISrvIP": {
+    "3APISrvIP": {
       "Description": "ODS/API Server Public IP",
       "Value": { "Ref": "ODSAPIFixedIPAddress" }
+    },
+    "4ODSAPIServerInstance" : {
+      "Description" : "ODS/API Server Instance on EC2",
+      "Value" : { "Ref": "ODSAPIServer" }
     }
   }
 }
