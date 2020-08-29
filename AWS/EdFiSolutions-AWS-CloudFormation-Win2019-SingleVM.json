@@ -531,7 +531,7 @@
             "" ] },
             " -AdminEmail \"", { "Ref" : "5AdminEmail" }, "\"",
             { "Fn::If": ["DDNSCheck", 
-              { "Fn::Join": ["", [ " -DDNSUsername \"", { "Ref" : "8DDNSUsername" }, "\" -DDNSPassword \"", { "Ref" : "9DDNSPassword" }, "\"", "\" -DDNSUrl \"", { "Fn::FindInMap" : [ "DynamicDNS", { "Ref" : "7DDNSService" }, "DDNSUrl" ]}, "\"" ]] },
+              { "Fn::Join": ["", [ " -DDNSUsername \"", { "Ref" : "8DDNSUsername" }, "\" -DDNSPassword \"", { "Ref" : "9DDNSPassword" }, "\" -DDNSUrl \"", { "Fn::FindInMap" : [ "DynamicDNS", { "Ref" : "7DDNSService" }, "DDNSUrl" ]}, "\"" ]] },
             "" ] },
             { "Fn::If": ["AllSolutions", 
               "",
