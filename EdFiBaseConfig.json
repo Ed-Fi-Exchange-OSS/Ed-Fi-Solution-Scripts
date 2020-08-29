@@ -1,5 +1,5 @@
 {
-    "installType": "Staging",
+    "InstallType": "Demo",
     "EdFiDir": "C:\\Ed-Fi",
     "DownloadPath": "C:\\Ed-Fi\\Downloads",
     "SolutionWebRoot": "C:\\Ed-Fi\\www",

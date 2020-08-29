@@ -3,9 +3,11 @@
 param (
     $DnsName,
     $AdminEmail,
+    $DDNSUrl,
     $DDNSUsername,
     $DDNSPassword,
-    $SolutionName
+    $SolutionName,
+    $InstallType="Demo"
 )
 function Install-ChocoGitPkg {
     Set-ExecutionPolicy Bypass -Scope Process -Force;[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
@@ -28,12 +30,16 @@ Start-Process -Wait -NoNewWindow -FilePath $gitCmd -ArgumentList "clone $repoURL
 Set-Location $ScriptDir
 $installParams=@{
     'Verbose'=$true
+    'InstallType' = $InstallType
 }
 if (!([string]::IsNullOrEmpty($DnsName))) {
     $installParams['DnsName']=$DnsName
 }
 if (!([string]::IsNullOrEmpty($AdminEmail))) {
     $installParams['AdminEmail']=$AdminEmail
+}
+if (!([string]::IsNullOrEmpty($DDNSUrl))) {
+    $installParams['DDNSUrl']=$DDNSUrl
 }
 if (!([string]::IsNullOrEmpty($DDNSUsername))) {
     $installParams['DDNSUsername']=$DDNSUsername

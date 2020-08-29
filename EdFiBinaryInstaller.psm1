@@ -9,35 +9,51 @@ if (!(Get-Command "Install-Choco" -ErrorAction SilentlyContinue)) {
 Function Install-BaseEdFi {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
-        $InstallType,       # $InstallType can be "Production", "Staging", or "Sandbox"
+        $InstallType,       # $InstallType can be "Staging", "Demo", or "Sandbox"
         $SuiteVersion,      # $SuiteVersion includes minor revision numbers for now e.g. "3.4.0" or "2.6.0" but will change with semantic versioning
-        $DnsName,
+        $DnsName="localhost",
         $EdFiDir="C:\Ed-Fi",
-        $iisConfig=@{ iisUser="IIS_IUSRS"; defaultSiteName="Default Web Site"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
+        $iisConfig=@{ iisUser="IIS_IUSRS"; SiteName="Default Web Site"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
     )
+    $binariesConfigFile="$PSScriptRoot\binaries.ps1"
     $versionNum = 'v'+$SuiteVersion.Replace(".", "")
+    $directories = @{
+        dataFile = @{ path="$EdFiDir\dbs";perms=""};
+        logFile = @{ path="$EdFiDir\dbs";perms=""};
+        download = @{ path="$EdFiDir\downloads";perms="Modify"};
+        install = @{ path="$EdFiDir\v$SuiteVersion-$InstallType";perms="ReadAndExecute"};
+        appLog = @{ path="$EdFiDir\logs";perms="Modify"};
+        dbBackup = @{ path="$EdFiDir\v$SuiteVersion-$InstallType\dbs";perms=""}
+    }
     $dataFilePath = "$EdFiDir\dbs"
     $logFilePath  = "$EdFiDir\dbs"
     $downloadPath = "$EdFiDir\downloads"
-    $installPath = "$EdFiDir\v$SuiteVersion-$InstallType" # $installPath = "C:\inetpub\wwwroot\v$SuiteVersion$InstallType"
+    $installPath = "$EdFiDir\v$SuiteVersion-$InstallType"
     $appLogPath="$EdFiDir\logs"
     # IIS settings
     $virtualDirectoryName = "$versionNum-$InstallType"
-#    $appsBaseUrl = "https://$DnsName/$virtualDirectoryName"
-    $appsBaseUrl = "https://localhost/$virtualDirectoryName"
+    $appsBaseUrl = "https://$DnsName/$virtualDirectoryName"
     $apiBaseUrl = "$appsBaseUrl/api"
     # Database vars
     $backupLocation = "$installPath\dbs"
     $dbNamePrefix = "$InstallType"
     $dbNameSufix = "$versionNum"
     $logFileSuffix = "$($versionNum)-$($InstallType)"
-    $odsName="" # Will add prefix and suffix so ODS name could be: Production_EdFiODS_v340
+    $odsName="" # Will add prefix and suffix so ODS name could be: Staging_EdFiODS_v340
     # 1. Ensure paths exist and set permissions accordingly
     if (! $(Try { Test-Path $EdFiDir } Catch { $false }) ) {
         New-Item -ItemType Directory -Force -Path $EdFiDir 
     }
     Set-PermissionsOnPath $EdFiDir "Users" "Modify"  # TODO: Give Users group Modify access to avoid any problems. This might need to be adjusted with a new group.
     Set-PermissionsOnPath $EdFiDir $iisConfig.iisUser "ReadAndExecute" # TODO: Give execute access to main dir, might want to lock down better.
+    foreach ($dir in $directories.Keys) {
+        if (! $(Try { Test-Path $dir.path } Catch { $false }) ) {
+            New-Item -ItemType Directory -Force -Path $directories[$dir].path 
+        }
+        if (![string]::IsNullOrEmpty($directories[$dir].perms)) {
+            Set-PermissionsOnPath $directories[$dir].path $iisConfig.iisUser $directories[$dir].perms # TODO: Review security
+        }
+    }
     if (! $(Try { Test-Path $installPath } Catch { $false }) ) {
         New-Item -ItemType Directory -Force -Path $installPath 
     }
@@ -60,151 +76,12 @@ Function Install-BaseEdFi {
     Set-PermissionsOnPath $logFilePath $iisConfig.iisUser "NoAccess" # TODO: Block IIS on log files.
     #
     # 2. Add main virtual directory for this Ed-Fi Suite to IIS
-    $tooVerbose=New-WebVirtualDirectory -Site $iisConfig.defaultSiteName -Name $virtualDirectoryName -PhysicalPath $installPath -Force
+    $tooVerbose=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -PhysicalPath $installPath -Force
     Write-Verbose "New-WebVirtualDirectory: $tooVerbose"
     #
     # Binaries Metadata
-    $binaries = @(  
-                    @{  name = "Api"; type = "WebApp";
-                        requiredInInstallTypes = @("Production","Staging","Sandbox")
-                        url = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Ods.WebApi.EFA/$SuiteVersion";
-                        iisAuthentication = @{ "anonymousAuthentication" = $true 
-                                                "windowsAuthentication" = $false
-                                             }
-                        envAppSettings = @{
-                            v260 = @{ 
-                                       Production = @{ "owin:appStartup" = 'SharedInstance'; };
-                                       Staging    = @{ "owin:appStartup" = 'SharedInstance'; };
-                                       Sandbox    = @{ "owin:appStartup" = 'ConfigSpecificSandbox' };
-                                    }
-                            v320 = @{  
-                                        Production = @{ "apiStartup:type" = 'SharedInstance' };
-                                        Staging    = @{ "apiStartup:type" = 'SharedInstance' };
-                                        Sandbox    = @{ "apiStartup:type" = 'Sandbox' };
-                                    }
-                            v330 = @{  
-                                        Production = @{ "apiStartup:type" = 'SharedInstance' };
-                                        Staging    = @{ "apiStartup:type" = 'SharedInstance' };
-                                        Sandbox    = @{ "apiStartup:type" = 'Sandbox' };
-                                    }
-                            v340 = @{  
-                                        Production = @{ "apiStartup:type" = 'SharedInstance' };
-                                        Staging    = @{ "apiStartup:type" = 'SharedInstance' };
-                                        Sandbox    = @{ "apiStartup:type" = 'Sandbox' };
-                                    }
-                        }
-                        databases = @(  #all InstallTypes
-                                        @{src="EdFi_Admin";dest="$($dbNamePrefix)_EdFi_Admin_$dbNameSufix"}
-                                        @{src="EdFi_Security";dest="$($dbNamePrefix)_EdFi_Security_$dbNameSufix"}
-                                        # InstallType Specific
-                                        @{src="EdFi_Ods_Minimal_Template";dest="$($dbNamePrefix)_EdFi_Ods_$dbNameSufix";InstallType="Production"}
-                                        @{src="EdFi_Ods_Populated_Template";dest="$($dbNamePrefix)_EdFi_Ods_$dbNameSufix";InstallType="Staging"}
-                                        @{src="EdFi_Ods_Minimal_Template";dest="$($dbNamePrefix)_EdFi_Ods_Minimal_Template_$dbNameSufix";InstallType="Sandbox"}
-                                        @{src="EdFi_Ods_Populated_Template";dest="$($dbNamePrefix)_EdFi_Ods_Populated_Template_$dbNameSufix";InstallType="Sandbox"}
-                                    )
-                        envConnectionStrings = @{
-                            Production = @{
-                                            "EdFi_Ods"               = "Server=.; Database=$($dbNamePrefix)_EdFi_ODS_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Admin"             = "Server=.; Database=$($dbNamePrefix)_EdFi_Admin_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Security"          = "Server=.; Database=$($dbNamePrefix)_EdFi_Security_$dbNameSufix; Trusted_Connection=True; Persist Security Info=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_master"            = "Server=.; Database=master; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "BulkOperationDbContext" = "Server=.; Database=$($dbNamePrefix)_EdFi_Bulk_$dbNameSufix; Trusted_Connection=True; MultipleActiveResultSets=True; Application Name=EdFi.Ods.WebApi;"
-                                          }
-                            Staging = @{
-                                            "EdFi_Ods"               = "Server=.; Database=$($dbNamePrefix)_EdFi_ODS_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Admin"             = "Server=.; Database=$($dbNamePrefix)_EdFi_Admin_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Security"          = "Server=.; Database=$($dbNamePrefix)_EdFi_Security_$dbNameSufix; Trusted_Connection=True; Persist Security Info=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_master"            = "Server=.; Database=master; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "BulkOperationDbContext" = "Server=.; Database=$($dbNamePrefix)_EdFi_Bulk_$dbNameSufix; Trusted_Connection=True; MultipleActiveResultSets=True; Application Name=EdFi.Ods.WebApi;"
-                                          }
-                            Sandbox = @{
-                                            "EdFi_Ods"               = "Server=.; Database=EdFi_{0}; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Admin"             = "Server=.; Database=$($dbNamePrefix)_EdFi_Admin_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Security"          = "Server=.; Database=$($dbNamePrefix)_EdFi_Security_$dbNameSufix; Trusted_Connection=True; Persist Security Info=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_master"            = "Server=.; Database=master; Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "BulkOperationDbContext" = "Server=.; Database=$($dbNamePrefix)_EdFi_Bulk_$dbNameSufix; Trusted_Connection=True; MultipleActiveResultSets=True; Application Name=EdFi.Ods.WebApi;"
-                                        };
-                        }
-                        logFile = @{ "file" = "$appLogPath\ODSAPI-$logFileSuffix-log.txt" };
-                    }
-                    @{  name="Dbs"; type="Databases"; 
-                        requiredInInstallTypes = @("Production","Staging","Sandbox")
-                        url="http://www.toolwise.net/EdFi v$SuiteVersion databases with Sample Ext.zip"; }
-                    @{  name="SandboxAdmin"; type="WebApp";
-                        description = "This is the SandboxAdmin tool.";
-                        requiredInInstallTypes = @("Sandbox")
-                        InstallType = "Sandbox";
-                        url="https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Ods.Admin.Web.EFA/$SuiteVersion"
-                        urlVersionOverride = @{
-                            v340 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Ods.Admin.Web.EFA/3.3.0"
-                        }
-                        iisAuthentication = @{ "anonymousAuthentication" = $true 
-                                                "windowsAuthentication" = $false
-                                            }
-                        connectionStrings = @{
-                                            "EdFi_Ods"                   = "Server=.; Database=EdFi_{0};      Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Admin"                 = "Server=.; Database=$($dbNamePrefix)_EdFi_Admin_$dbNameSufix;    Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_Security"              = "Server=.; Database=$($dbNamePrefix)_EdFi_Security_$dbNameSufix; Trusted_Connection=True; Persist Security Info=True; Application Name=EdFi.Ods.WebApi;"
-                                            "EdFi_master"                = "Server=.; Database=master;        Trusted_Connection=True; Application Name=EdFi.Ods.WebApi;"
-                                            "UniqueIdIntegrationContext" = "Server=.; Database=$($dbNamePrefix)_UniqueId_$dbNameSufix;     Trusted_Connection=True; MultipleActiveResultSets=True; Application Name=EdFi.Ods.WebApi;"
-                                            };
-                        appSettings = @{ "apiStartup:type" = 'Sandbox' };
-                        webConfigTagInsert = @{"//initialization" = '<users><add name="Test Admin" email="test@ed-fi.org" password="***REMOVED***" admin="true" /></users>'};
-                        webConfigTagPostInstall = @{"//initialization" = ''};
-                        webConfigAttributePostInstall = New-Object PSObject -Property @{ xPath="//initialization";attribute="enabled";value="False"}
-                        logFile = @{ "file" = "$appLogPath\SandboxAdmin-$logFileSuffix-log.txt" };
-                    }
-                    @{  name="Docs"; type="WebApp";
-                        description="This is the Swagger Api Docs web site.";
-                        requiredInInstallTypes = @("Production","Staging","Sandbox")
-                        url="https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Ods.SwaggerUI.EFA/$SuiteVersion";
-                        urlVersionOverride = @{
-                            v340 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Ods.SwaggerUI.EFA/3.3.0"
-                        }
-                        iisAuthentication = @{ "anonymousAuthentication" = $true 
-                                                "windowsAuthentication" = $false
-                                            }
-                        envAppSettings = @{
-                            v260 = @{ "swagger.webApiMetadataUrl" = "$apiBaseUrl/metadata/{section}/api-docs" }
-                            v320 = @{
-                                "swagger.webApiMetadataUrl" = "$apiBaseUrl/metadata/"
-                                "swagger.webApiVersionUrl"  = "$apiBaseUrl" };
-                            v330 = @{
-                                "swagger.webApiMetadataUrl" = "$apiBaseUrl/metadata/"
-                                "swagger.webApiVersionUrl"  = "$apiBaseUrl" };
-                            v340 = @{
-                                "swagger.webApiMetadataUrl" = "$apiBaseUrl/metadata/"
-                                "swagger.webApiVersionUrl"  = "$apiBaseUrl" };
-                        };
-                    }
-                    @{ name="AdminApp";
-                        description="This is the Production\SharedInstance AdminApp. Not to be confucesd with the SandboxAdmin.";
-                        type="WebApp";
-                        requiredInInstallTypes = @("Production","Staging")
-                        url="https://www.myget.org/F/ed-fi/api/v2/package/EdFi.ODS.AdminApp.Web/$SuiteVersion";
-                        urlVersionOverride = @{
-                            v340 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.ODS.AdminApp.Web/3.3.0"
-                            v320 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.ODS.AdminApp.Web/3.2.0.1"
-                            v250 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.ODS.AdminApp.Web/2.5.1"
-                        }
-                        iisAuthentication = @{ 
-                                                "anonymousAuthentication" = $false
-                                                "windowsAuthentication" = $true
-                                            }
-                        appSettings = @{
-                                        "ProductionApiUrl" = "$appsBaseUrl/api"
-                                        "SwaggerUrl" = "$appsBaseUrl/docs"
-                                    };
-                        connectionStrings = @{
-                                                "EdFi_Ods_Production" = "Server=.; Database=$($dbNamePrefix)_EdFi_Ods_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.AdminApp;"
-                                                "EdFi_Admin"          = "Server=.; Database=$($dbNamePrefix)_EdFi_Admin_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.AdminApp;"
-                                                "EdFi_Security"       = "Server=.; Database=$($dbNamePrefix)_EdFi_Security_$dbNameSufix; Trusted_Connection=True; Application Name=EdFi.AdminApp;"
-                                            };
-                        logFile = @{ "file" = "$appLogPath\AdminApp-$logFileSuffix-log.txt" };
-                        secretJsonv260 = @{"AdminCredentials.UseIntegratedSecurity"=$true};
-                    }
-                )
-
+    $binaries = Invoke-Expression (Get-Content -Raw -Path $binariesConfigFile)
+    Write-Verbose "Configuration table:"
     #
     # Create a table to collect the URLs for later use
     $appURLTable = @(
@@ -229,8 +106,8 @@ Function Install-BaseEdFi {
     foreach ($b in $binaries | Where-Object {($_.type -eq "WebApp") -and (($_.requiredInInstallTypes.Contains($InstallType)) -or (!$_.requiredInInstallTypes))}) {
         $appName = $b.name
         $appPhysicalPath = "$installPath\$appName"
-        $applicationIISPath = "$($iisConfig.defaultSiteName)/$virtualDirectoryName/$appName"
-        $tooVerbose=New-WebApplication -Name $appName  -Site "$($iisConfig.defaultSiteName)\$virtualDirectoryName" -PhysicalPath $appPhysicalPath -ApplicationPool $($iisConfig.applicationPool) -Force
+        $applicationIISPath = "$($iisConfig.SiteName)/$virtualDirectoryName/$appName"
+        $tooVerbose=New-WebApplication -Name $appName  -Site "$($iisConfig.SiteName)\$virtualDirectoryName" -PhysicalPath $appPhysicalPath -ApplicationPool $($iisConfig.applicationPool) -Force
         Write-Verbose "New-WebApplication: $tooVerbose"
         # Add URL of app to table
         if ($b.name -ne "Api") {
@@ -420,7 +297,7 @@ Function Restore-Database($dbSource, $dbDestinationName, $dbBackupPath, $dataFil
     $backupDeviceItem = New-Object Microsoft.SqlServer.Management.Smo.BackupDeviceItem -ArgumentList $dbBackupPath,'File'
     $restore = New-Object Microsoft.SqlServer.Management.Smo.Restore
     $restore.Database = $dbDestinationName
-    $restore.Devices.Add($backupDeviceItem)
+    $tooVerbose = $restore.Devices.Add($backupDeviceItem)
     $backupFiles = $restore.ReadFileList($server)
 
     foreach ($file in $backupFiles) {
@@ -432,14 +309,15 @@ Function Restore-Database($dbSource, $dbDestinationName, $dbBackupPath, $dataFil
         else {
             $relocateFile.PhysicalFileName = $logRestorePath
         }
-        $restore.RelocateFiles.Add($relocateFile) 
+        $tooVerbose = $restore.RelocateFiles.Add($relocateFile) 
     }
     try {
-        $restore.SqlRestore($server)
+        $tooVerbose = $restore.SqlRestore($server)
     }
     catch {
         Write-Error "Exception: $($_.Exception) Details: $_"
     }
+    Write-Verbose "Restore of database completed:`n  $tooVerbose"
 }
 # endregion
 Function Initialize-Url($url){

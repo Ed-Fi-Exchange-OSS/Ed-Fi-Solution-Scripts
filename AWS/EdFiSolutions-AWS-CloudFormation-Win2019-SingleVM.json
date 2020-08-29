@@ -1,9 +1,32 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Instantiates development environments for installation of an Ed-Fi Operational Data Store (ODS) and API web server.",
+  "Description": "Instantiates a demo or testing instance of an Ed-Fi Operational Data Store (ODS) and API web server along with assets and prerequisites of a chosen solution package from the Ed-Fi Community.",
   "Parameters": {
-    "1SelectedInstanceType": {
-      "Description": "EC2 instance type, Development machine = t3.medium. Testing = m4.large",
+    "0SolutionName" : {
+      "Description": "Select a particular solution by name to install, or select All to install all solutions available. Default: None to install only the base Suite 3 ODS/API",
+      "Type": "String",
+      "Default": "None",
+      "AllowedValues": [
+        "All",
+        "ChronicAbsenteeism",
+        "ParentPortal",
+        "None"
+      ],
+      "ConstraintDescription": "Must be name of an available solution"  
+    },
+    "1InstallType" : {
+      "Description": "Select whether to include demonstration data automatically or prepare a production-like staging environment.",
+      "Type": "String",
+      "Default": "Demo",
+      "AllowedValues": [
+        "Demo",
+        "Staging",
+        "Sandbox"
+      ],
+      "ConstraintDescription": "Must be either Demo, Staging, or Sandbox"  
+    },
+    "2SelectedInstanceType": {
+      "Description": "Sizing (instance type) of the single EC2 Windows VM we will create, for example: a Demo/Development VM = t3.medium or t3.large. Or for a Testing/Staging VM = m4.large",
       "Type": "String",
       "Default": "t3.medium",
       "AllowedValues": [
@@ -23,27 +46,15 @@
       ],
       "ConstraintDescription": "Must be a valid EC2 instance type."
     },
-    "2KeyName": {
-      "Description": "Key Pair Name - You must create an EC2 Key Pair before launching this template; the private key (*.pem file) downloaded will be used to obtain the administrator password used to remotely log in to your EC2 instances (servers).",
+    "3KeyName": {
+      "Description": "Key Pair Name - You must create an EC2 Key Pair before launching this template. You will need the private key (*.pem file) downloaded to obtain the administrator password if you need to remotely log in to your EC2 instance (Windows VM).",
       "Type": "AWS::EC2::KeyPair::KeyName"
-    },
-    "3SolutionName" : {
-      "Description": "Select a particular solution by name to install, or select All to install all solutions available. Default: None to install only the base Suite 3 ODS/API",
-      "Type": "String",
-      "Default": "None",
-      "AllowedValues": [
-        "All",
-        "ChronicAbsenteeism",
-        "ParentPortal",
-        "None"
-      ],
-      "ConstraintDescription": "Must be name of an available solution"  
     },
     "4DnsName" : {
         "Description": "DNS hostname to use for this server (if one exists)",
         "Type": "String",
-        "Default": "demo.ed-fi.org",
-        "AllowedPattern": "(.*)\\.(.*)",
+        "Default": "",
+        "AllowedPattern": "^$|(.*)\\.(.*)",
         "ConstraintDescription": "Must be a valid DNS hostname: e.g. demo.ed-fi.org"  
     },
     "5AdminEmail" : {
@@ -52,33 +63,46 @@
         "AllowedPattern": "(.*)@(.*)",
         "ConstraintDescription": "Must be a valid email address: e.g. techsupport@ed-fi.org"  
     },
-    "6DDNSUsername": {
-      "Description": "Username for the Dynamic DNS service",
-      "Type": "String",
-      "Default": "edfisolutions"
-    },
-    "7DDNSPassword": {
-      "Description": "Password for the Dynamic DNS service",
-      "Type": "String",
-      "Default": ""
-    },
-    "8RemoteNetwork": {
-      "Description": "The IP address range that can be used to limit connectivity to the EC2 instances e.g. 65.36.34.0/24",
+    "6RemoteNetwork": {
+      "Description": "Enter the IPv4 address subnet (CIDR) which will be used to limit connectivity to the VPC through both SecurityGroup and Network ACL rules. For example: 65.36.34.0/24 is a subnet and 66.68.96.191/32 is a single host",
       "Type": "String",
       "MinLength": "9",
       "MaxLength": "18",
       "Default": "255.255.255.255/32",
       "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
-      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+      "ConstraintDescription": "Must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "7DDNSService" : {
+      "Description": "If you are using dynamic DNS to update the IP address for your hostname, please select the service provider",
+      "Type": "String",
+      "Default": "none",
+      "AllowedValues": [
+        "Dyn.com",
+        "YDNS",
+        "FreeDNS",
+        "none"
+      ],
+      "ConstraintDescription": "Must be a provider in this list"  
+    },
+    "8DDNSUsername": {
+      "Description": "If you are using dynamic DNS to update the IP address for your hostname, please enter your Username for the service",
+      "Type": "String",
+      "Default": ""
+    },
+    "9DDNSPassword": {
+      "Description": "If you are using dynamic DNS to update the IP address for your hostname, please enter your Password for the  service",
+      "Type": "String",
+      "Default": "",
+      "NoEcho": "true"
     }
   },
   "Conditions": {
-    "AllSolutions" : { "Fn::Equals": [ { "Ref": "3SolutionName" }, "All" ] },
-    "NoSolutions" : { "Fn::Equals": [ { "Ref": "3SolutionName" }, "None" ] },
+    "AllSolutions" : { "Fn::Equals": [ { "Ref": "0SolutionName" }, "All" ] },
+    "NoSolutions" : { "Fn::Equals": [ { "Ref": "0SolutionName" }, "None" ] },
     "DDNSCheck" : {
       "Fn::And" : [
-        { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "6DDNSUsername" }, "" ] }] },
-        { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "7DDNSPassword" }, "" ] }] }
+        { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "8DDNSUsername" }, "" ] }] },
+        { "Fn::Not" : [{ "Fn::Equals": [ { "Ref": "9DDNSPassword" }, "" ] }] }
       ]
     },
     "DnsNameCheck" : 
@@ -106,6 +130,12 @@
         "AWSLogsAcct": "797873946194",
         "AMI": "ami-029e27fb2fc8ce9d8"
       }
+    },
+    "DynamicDNS" : {
+      "Dyn.com" : { "DDNSUrl": "https://members.dyndns.org/nic/update?hostname={DnsName}`&myip={IP}" },
+      "YDNS" : { "DDNSUrl": "https://ydns.io/api/v1/update/?host={DnsName}`&ip={IP}" },
+      "FreeDNS" : { "DDNSUrl": "https://freedns.afraid.org/nic/update?hostname={DnsName}`&myip={IP}" },
+      "none" : { "DDNSUrl": ""}
     }
   },
   "Resources": {
@@ -269,7 +299,7 @@
         "PortRange": { "From": "3389", "To": "3389" },
         "RuleAction": "deny",
         "Egress": "false",
-        "CidrBlock": { "Ref": "8RemoteNetwork" }
+        "CidrBlock": { "Ref": "6RemoteNetwork" }
       }
     },
     "RemoteAccessUDPRDPIn": {
@@ -281,7 +311,7 @@
         "PortRange": { "From": "3389", "To": "3389" },
         "RuleAction": "deny",
         "Egress": "false",
-        "CidrBlock": { "Ref": "8RemoteNetwork" }
+        "CidrBlock": { "Ref": "6RemoteNetwork" }
       }
     },
     "SubnetODSAPI": {
@@ -333,7 +363,7 @@
             "IpProtocol": "tcp",
             "FromPort": "3389",
             "ToPort": "3389",
-            "CidrIp": { "Ref": "8RemoteNetwork" }
+            "CidrIp": { "Ref": "6RemoteNetwork" }
           }
         ],
         "SecurityGroupEgress": [
@@ -477,9 +507,9 @@
       "Type": "AWS::EC2::Instance",
       "Properties": {
         "ImageId": { "Fn::FindInMap" : [ "RegionMap", { "Ref" : "AWS::Region" }, "AMI" ]},
-        "InstanceType": { "Ref": "1SelectedInstanceType" },
+        "InstanceType": { "Ref": "2SelectedInstanceType" },
         "IamInstanceProfile": { "Ref": "ServerAssumptionProfile" },
-        "KeyName": { "Ref": "2KeyName" },
+        "KeyName": { "Ref": "3KeyName" },
         "BlockDeviceMappings" : [
           {
               "DeviceName" : "/dev/sda1",
@@ -497,19 +527,19 @@
             "Install-ChocoGitPkg;$gitCmd=(Get-Command \"git.exe\").Source;Start-Process -Wait -NoNewWindow -FilePath $gitCmd -ArgumentList \"clone $repoURL $ScriptDir\";Set-Location $ScriptDir;Stop-Transcript;\n",
             ".\\install_solution.ps1 -Verbose",
             { "Fn::If": ["DnsNameCheck", 
-              { "Fn::Join": ["", [ " -DnsName ", { "Ref" : "4DnsName" } ]] },
-              "" ] },
-            " -AdminEmail ",
-            { "Ref" : "5AdminEmail" },
+              { "Fn::Join": ["", [ " -DnsName \"", { "Ref" : "4DnsName" }, "\"" ]] },
+            "" ] },
+            " -AdminEmail \"", { "Ref" : "5AdminEmail" }, "\"",
             { "Fn::If": ["DDNSCheck", 
-              { "Fn::Join": ["", [ " -DDNSUsername ", { "Ref" : "6DDNSUsername" }, " -DDNSPassword ", { "Ref" : "7DDNSPassword" } ]] },
-              "" ] },
+              { "Fn::Join": ["", [ " -DDNSUsername \"", { "Ref" : "8DDNSUsername" }, "\" -DDNSPassword \"", { "Ref" : "9DDNSPassword" }, "\"", "\" -DDNSUrl \"", { "Fn::FindInMap" : [ "DynamicDNS", { "Ref" : "7DDNSService" }, "DDNSUrl" ]}, "\"" ]] },
+            "" ] },
             { "Fn::If": ["AllSolutions", 
               "",
               { "Fn::If": ["NoSolutions", 
-                " -SolutionName base ",
-                { "Fn::Join": ["", [ " -SolutionName \"", { "Ref" : "3SolutionName" }, "\"" ] ] }
+                " -SolutionName \"base\" ",
+                { "Fn::Join": ["", [ " -SolutionName \"", { "Ref" : "0SolutionName" }, "\"" ] ] }
                 ] } ] },
+            { "Fn::Join": ["", [ " -InstallType \"", { "Ref" : "1InstallType" }, "\"" ] ] },
             "\n",
             "</powershell>\n"
           ] ] }

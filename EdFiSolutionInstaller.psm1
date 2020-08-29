@@ -171,6 +171,23 @@ function Copy-WebArchive {
     $tooVerbose=Expand-Archive -LiteralPath $FilePath -DestinationPath $InstallPath -Force
     Write-Verbose "Expand-Archive: $tooVerbose"
 }
+function Convert-HashtableToString {
+    param (
+        [Parameter(Mandatory = $true)][System.Collections.Hashtable] $Hashtable
+    )
+    $buildString = "@{"
+    foreach ($key in $Hashtable.keys) {
+        $val = $Hashtable[$key]
+        if ($key -match "\s") {
+            $buildString += "`"$key`"" + "=" + "`"$val`"" + ";"
+        }
+        else {
+            $buildString += $key + "=" + "`"$val`"" + ";"
+        }
+    }
+    $buildString += "}"
+    return $buildString
+}
 function Install-NugetPackage {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
@@ -203,7 +220,7 @@ function Install-NugetPackage {
     }
     return $downloadedPackagePath
 }
-function Get-ExternalIP(){
+function Get-ExternalIP {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param ()
     try {
@@ -222,25 +239,46 @@ function Get-ExternalIP(){
         return $false
     }
 }
+function Add-NameToHostsFile {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$DnsName
+    )
+    # Setting a hosts entry for the given name on loopback IP address to bypass DNS
+    $hostsFilePath = "$($Env:WinDir)\system32\Drivers\etc\hosts"
+    $hostsFile = Get-Content $hostsFilePath
+    $escapedHostname = [Regex]::Escape($DnsName)
+    $loopbackIP="127.0.0.1"
+    if (!(($hostsFile) -match ".*$loopbackIP\s+$escapedHostname.*")) {
+        Add-Content -Encoding UTF8  $hostsFilePath ("$loopbackIP".PadRight(20, " ") + "$DnsName")
+    }
+    Write-Verbose "Loopback address mapping to $DnsName added to Hosts file"
+    #
+    # Add hosts entries for all local ip addresses mapped to given name
+    #$localIPAddresses = Get-NetIPAddress -AddressState Preferred -AddressFamily IPv4 | Select-Object IPAddress
+    #foreach ($localIP in $localIPAddresses) {
+    #    if (!(($hostsFile) -match ".*$localIP\s+$escapedHostname.*")) {
+    #        Add-Content -Encoding UTF8  $hostsFilePath ("$localIP".PadRight(20, " ") + "$HostDNS")
+    #    }
+    #}
+    #
+}
 function Update-DynDNS {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $HostDNS,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $IP,
+        [string] $ProviderUrl="https://members.dyndns.org/nic/update?hostname={DnsName}&myip={IP}",
         [pscredential]$Credentials
     )
     # Uses the REST interface for Dyn.com.
     if (!$IP) {
         $IP=Get-ExternalIP
     }
-    # TODO: Special exception for my demo setup
-    # Replacing demo.kerlick.com
-    if ($HostDNS -eq "demo.kerlick.com") {
-        $HostDNS="kerlickcp.dyndns.org"
-    }
     try {
         "Updating DDNS for {0} with IP {1}" -f $HostDNS, $IP | Write-Verbose
-        $Result = Invoke-RestMethod -Uri "https://members.dyndns.org/nic/update?hostname=$HostAddress&myip=$IP" -Credential $Credentials -UserAgent "EdFiAlliance SolutionBuilder"
+        $ProviderUrl = $ProviderUrl -replace "{DnsName}",$HostDNS -replace "{IP}",$IP
+        $Result = Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent "EdFiAlliance SolutionBuilder"
         Write-Verbose "DDNS updated"
     }
     catch {
@@ -269,12 +307,12 @@ function Get-SelfSignedCertificate {
     foreach($cert in $certificates) {
         if ($cert.FriendlyName -eq $CertName) { 
             Write-Verbose "Found Self-Signed Cert Thumbprint: $($cert.Thumbprint)"
-            return $cert.Thumbprint
+            return $cert
         }
     }
     #Create self signed certificate
     $hostnames = @("localhost")
-    if ([string]::IsNullOrEmpty($DnsName)) {
+    if (!([string]::IsNullOrEmpty($DnsName) -or ($DnsName -eq "localhost"))) {
         $hostnames += $DnsName
     }
     $cert = New-SelfSignedCertificate -DnsName $hostnames -CertStoreLocation 'Cert:\LocalMachine\My' -FriendlyName $CertName -NotAfter $((Get-Date).AddYears(10)) -KeyExportPolicy 'Exportable' -KeyFriendlyName $CertName -KeyDescription "Self-signed certificate for localhost"
@@ -297,7 +335,7 @@ function Get-LetsEncSSLCert {
         if($cert.Subject -eq "CN=$DnsName") { 
             $cert.FriendlyName=$CertName
             Write-Verbose "Found SSL Cert for $DnsName with Thumbprint: $($cert.Thumbprint)"
-            return $cert.Thumbprint
+            return $cert
         } 
     }
     if (!(Get-Command "wacs" -ErrorAction SilentlyContinue)) {
@@ -311,7 +349,7 @@ function Get-LetsEncSSLCert {
     }
     catch {
         Write-Error "WACS failed to generate a certifcate from Lets Encrypt.  Error: $_ "
-        return
+        return $null
     }
     $certificates = Get-ChildItem Cert:\LocalMachine\WebHosting
     if ($null -eq $certificates) {
@@ -332,102 +370,163 @@ function Enable-WebServerSSL {
     param (
         [string] $InstallPath,
         [string] $HostDNS,
-        [string] $AdminEmail='techsupport@ed-fi.org'
+        [string] $AdminEmail ='techsupport@ed-fi.org',
+        $iisConfig=@{  defaultSiteName="Default Web Site"; SiteName="Default Web Site"; defaultApplicationPool = "DefaultAppPool"; applicationPool = "DefaultAppPool" }
     )
-    $defaultSiteName = "Default Web Site"
-    $httpsBinding=$null
+    $defaultSiteName = $iisConfig.defaultSiteName
+    $SiteName = $iisConfig.SiteName
+    $iisSite = $null
+    $httpsBinding = $null
+    Set-Location $InstallPath    
+    if ([string]::IsNullOrEmpty($HostDNS) -or ($HostDNS -like "localhost*")) {
+        $HostDNS = "localhost"
+        # Must use default site name on localhost to avoid breaking things
+        $SiteName = $defaultSiteName
+        Write-Verbose "Using default (existing) IIS site: $SiteName"
+    }
+    # Check for a different Site Name than default
+    if ([string]::IsNullOrEmpty($SiteName)) {
+        # Must use default site name on localhost to avoid breaking things
+        $SiteName = $defaultSiteName
+        Write-Verbose "Using default (existing) IIS site: $SiteName"
+    }
+    # Look for and return an existing SSL binding for the given site name
+    try {
+        if ($httpsBinding=Get-IISSiteBinding -Name $SiteName -Protocol "https") {
+            Write-Verbose "`nIIS is already configured for https on $SiteName as $httpsBinding.`n  Quitting without changing SSL for IIS.`n"
+            return $SiteName
+        }    
+    } 
+    catch {
+        Write-Verbose "`nIIS not yet configured for https on $SiteName `n  Checking for IIS Site first.`n"
+    }
+    # No SSL binding found
+    while ($null -eq $iisSite) {
+        try {
+            $iisSite=Get-IISSite $SiteName
+        }
+        catch {
+            Write-Verbose "Site Name: $SiteName not found.`n  Creating new IIS Site."
+        }
+        if ($null -eq $iisSite) {
+            try {
+                $iisSite=New-IISSite -Name $SiteName -BindingInformation "*:80:$HostDNS" -PhysicalPath $InstallPath 
+            }
+            catch {
+                if ($SiteName -eq $defaultSiteName) { 
+                    throw "No IIS $defaultSiteName `n  Unable to configure IIS for HTTP or HTTPS." 
+                }
+                Write-Verbose "Unable to create IIS Site Name: $SiteName `n  Switching to default site name: $defaultSiteName and trying again."
+                $SiteName=$defaultSiteName
+            }
+        }
+        else {
+            Write-Verbose "Found existing IIS Site named: $SiteName at:$iisSite"
+        }
+    }
     #
     # Configure IIS to use Lets Encrypt SSL Cert or Self-Signed, if needed
     #
-    Set-Location $InstallPath    
-    if($httpsBinding=Get-IISSiteBinding -Name $defaultSiteName -Protocol "https") {
-        Write-Verbose "`nIIS is already configured for https on $defaultSiteName as $httpsBinding.`n  Quitting without changing SSL for IIS.`n"
-        return
-    }
-    # No SSL binding found
     # Get self-signed certificate for localhost needs
     $selfSignedCert = Get-SelfSignedCertificate -DnsName $HostDNS -CertName "localhost Self-Signed" -FilePath $InstallPath
     $newCert=$null
     $certStoreLocation = "Cert:\LocalMachine\WebHosting"
-    # need to add the hostname binding to make sure the Acme client will work, and it shouldn't break the usual wildcard entry 
-    if ([string]::IsNullOrEmpty($HostDNS) -or ($HostDNS -like "localhost")) {
-        $HostDNS="localhost"
+    # In case you passed in some variant of localhost somehow, don't go tryin to create a cert for that, not even a little bit.
+    if ($HostDNS -eq "localhost") {
         $certStoreLocation = "Cert:\LocalMachine\My"
         try {
             # Stop the IIS Site while we fix SSL
-            Stop-IISSite -Name $defaultSiteName -Confirm:$false
-            Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
-            $httpsBinding = New-IISSiteBinding -name "$defaultSiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
+            Stop-IISSite -Name $SiteName -Confirm:$false
+            Write-Verbose "Command:`n New-IISSiteBinding -name `"$SiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
+            $httpsBinding = New-IISSiteBinding -name "$SiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
         }
         catch {
-            Write-Error "Error while binding IIS to $defaultSiteName on https for localhost with Certificate:$selfSignedCert.`n Error: $_"
+            Write-Error "Error while binding IIS to $SiteName on https for localhost with Certificate:$selfSignedCert.`n Error: $_"
         }
         finally {
             # Restart IIS Site
-            Start-IISSite -Name $defaultSiteName
+            Start-IISSite -Name $SiteName
         }
     }
-    elseif (!($HostDNS -like "*localhost*")) {
-        # In case you passed in localhost somehow, don't go tryin to create a cert for that, not even a little bit.
-        # Add a binding to the given hostname in case the system does not recognize that name as being local yet
+    else {
+        # If missing, add a binding to the given hostname in case the system does not recognize that name as being local yet .. to make sure the Acme client will work
+        #  and it shouldn't break the usual wildcard entry 
+        $httpsBinding=$null
         try {
-            Stop-IISSite -Name $defaultSiteName -Confirm:$false
-            Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:80:$HostDNS`" -protocol http`n"
-            $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:80:$HostDNS" -protocol "http"
+            $httpsBinding=Get-IISSiteBinding -Name $SiteName -BindingInformation "*:80:$HostDNS"
         }
         catch {
-            Write-Verbose "Warning:`n Failed to set IIS binding for $HostDNS on http.`n Attempting to get LE cert anyway `n  Exception was: $_ `n"
+            Write-Verbose "No binding for host:$HostDNS for site:$SiteName `n  Attempting to bind."
         }
-        finally {
-            # Restart IIS Site
-            Start-IISSite -Name $defaultSiteName
-        }
-        # free Let's Encrypt cert for given hostname
-        $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail
-        # In case of a null cert from silent fail, we'll try to bind anyway with Self-Signed
-        if ($null -ne $newCert) { 
+        if ($null -eq $httpsBinding) {
             try {
-                Stop-IISSite -Name $defaultSiteName -Confirm:$false
-                Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:$HostDNS`" -protocol https -CertificateThumbPrint `"$($newCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
-                $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:$HostDNS" -protocol https -CertificateThumbPrint "$($newCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
+                Stop-IISSite -Name $SiteName -Confirm:$false
+                Write-Verbose "Command:`n New-IISSiteBinding -name `"$SiteName`" -BindingInformation `"*:80:$HostDNS`" -protocol http`n"
+                $httpsBinding = New-IISSiteBinding -name $SiteName -BindingInformation "*:80:$HostDNS" -protocol "http"
             }
             catch {
-                Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with Certificate:$LESignedCert `n Error: $_ `n"
+                Write-Verbose "Warning:`n Failed to set IIS binding for $HostDNS on http.`n Attempting to get LE cert anyway `n  Exception was: $_ `n"
             }
             finally {
                 # Restart IIS Site
-                Start-IISSite -Name $defaultSiteName
+                Start-IISSite -Name $SiteName
             }
+        }
+        else {
+            Write-Verbose "Found binding for host:$HostDNS on site:$SiteName"
+        }
+        # Obtain a free Let's Encrypt cert for given hostname
+        $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail
+        # Attach the cert to port 443 on the given siteName # In case of a null cert from silent fail, we'll try to bind anyway with Self-Signed
+        if ($null -ne $newCert) { 
             try {
+                Stop-IISSite -Name $SiteName -Confirm:$false
+                Write-Verbose "Command:`n New-IISSiteBinding -name $SiteName -BindingInformation `"*:443:$HostDNS`" -protocol https -CertificateThumbPrint `"$($newCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
+                $httpsBinding = New-IISSiteBinding -name $SiteName -BindingInformation "*:443:$HostDNS" -protocol https -CertificateThumbPrint "$($newCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
+            }
+            catch {
+                Write-Error "Error while binding IIS to $SiteName on https for $HostDNS with Certificate:$($newCert.Thumbprint) `n Error: $_ `n"
+            }
+            finally {
+                # Restart IIS Site
+                Start-IISSite -Name $SiteName
+            }
+            if ($defaultSiteName -ne $SiteName) {
                 # Now add trusted self-signed cert to localhost, may require some manual re-map in IIS Manager. 
                 $certStoreLocation = "Cert:\LocalMachine\My"
                 Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:localhost`" -protocol https -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
-                $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:localhost" -protocol https -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
+                try {
+                    $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:localhost" -protocol https -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
+                }
+                catch {
+                    Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with self-signed certificate:$($selfSignedCert.Thumbprint) `n"
+                }
             }
-            catch {
-                Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with Certificate:$LESignedCert `n Error: $_ `n"
+            else {
+                Write-Verbose "Self-signed certificate was generated but is not active with an IIS site.`n Use the IIS Manager to select bindings to use it with as needed."
             }
         }
         else {
             try{
-                Stop-IISSite -Name $defaultSiteName -Confirm:$false
-                Write-Verbose "Warning:`n Couldn't get Let's Encrypt certificate, will fallback to using self-signed cert for localhost and DNS name if given`n"
+                Write-Verbose "Warning:`n Couldn't get Let's Encrypt certificate, will fallback to using self-signed cert for all hostnames on Site Name: $SiteName`n  This may cause http to fail to redirect!`n"
+                Stop-IISSite -Name $SiteName -Confirm:$false
                 $certStoreLocation = "Cert:\LocalMachine\My"
-                Write-Verbose "Command:`n New-IISSiteBinding -name `"$defaultSiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
-                $httpsBinding = New-IISSiteBinding -name "$defaultSiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
+                Write-Verbose "Command:`n New-IISSiteBinding -name `"$SiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
+                $httpsBinding = New-IISSiteBinding -name "$SiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
+                return $HostDNS
             }
             catch {
-                Write-Error "Error while binding IIS to $defaultSiteName on https for * (all hosts) with self-signed certificate:$selfSignedCert `n Error: $_ `n"
+                Write-Error "Error while binding IIS to $SiteName on https for * (all hosts) with self-signed certificate:$($selfSignedCert.Thumbprint) `n Error: $_ `n"
             }
             finally {
                 # Restart IIS Site
-                Start-IISSite -Name $defaultSiteName
+                Start-IISSite -Name $SiteName
             }
         }
     }
-
     #
-    Write-Verbose "IIS is configured for https on $defaultSiteName as $httpsBinding`n "
+    Write-Verbose "IIS is configured for https on $SiteName as $httpsBinding`n "
+    return $SiteName
 }
 function Enable-TCPonSQLInstance {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
@@ -481,32 +580,141 @@ function Install-SqlServerModule {
         Write-Error "Problem loading correct SQL Server Management Objects for db Restore.  Error: $_ "
     }
 }
-function Add-UserSQLIntegratedSecurity {
+function Add-SQLUser {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
-        $User = "IIS APPPOOL\DefaultAppPool",
-        $IntegratedSecurityRole = 'sysadmin',   # Should this be less powerful?
-        $SQLServerName="."                      # Local machine by default
+        [ValidateNotNullOrEmpty()][string]$UserName,
+        $SQLServerName="."                              # Local machine by default
     )
     try {
-        $server = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
-        if (!($server.Logins.Contains($User))) {
-            Write-Verbose "Adding $User to $IntegratedSecurityRole on SQL Server: $SQLServerName"
-            $SqlUser = New-Object -TypeName Microsoft.SqlServer.Management.Smo.Login -ArgumentList $server, $User
+        $SQLServer = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
+        $SqlLogins = $SQLServer.Logins
+        if ($SqlLogins.Count -lt 1) {
+            Write-Error "Unable to read any SQL Server logins. Please check your access to the instance"
+            return $false
+        }
+        if (!($SqlLogins.Contains($UserName))) {
+            Write-Verbose "Adding Login for User: $UserName to SQL Server: $SQLServerName"
+            $SqlUser = New-Object -TypeName Microsoft.SqlServer.Management.Smo.Login -ArgumentList $SQLServer,$UserName
             $SqlUser.LoginType = [Microsoft.SqlServer.Management.Smo.LoginType]::WindowsUser
-            $sqlUser.PasswordPolicyEnforced = $false
+            $SqlUser.PasswordPolicyEnforced = $false
             $SqlUser.Create()
-            $serverRole = $server.Roles | Where-Object {$_.Name -eq $IntegratedSecurityRole}
-            $serverRole.AddMember($User)
-            Write-Verbose "Added User: $User to Role: $IntegratedSecurityRole for SQL Server: $SQLServerName"
+            Write-Verbose "Added User: $UserName to Logins for SQL Server: $SQLServerName"
         }
         else {
-            Write-Verbose "User already configured for Integrated Security."
-        }    
+            Write-Verbose "Login already exists for UserName:$UserName"
+        }
     }
     catch {
-        Write-Error "Failed to add user: $User to SQL Server role: $IntegratedSecurityRole on server: $SQLServerName`n Error: $_"
+        Write-Error "Failed to add user: $UserName to SQL Server: $SQLServerName`n`n Error: $_"
+        return $false
     }
+    return $true
+}
+function Update-SQLUser {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [ValidateNotNullOrEmpty()][string]$UserName,
+        [ValidateNotNullOrEmpty()][string]$OldUserName,
+        $SQLServerName="."                      # Local machine by default
+    )
+    $SQLServer = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
+    $SqlLogins = $SQLServer.Logins
+    if ($SqlLogins.Count -lt 1) {
+        Write-Error "Unable to read any SQL Server logins. Please check your access to the instance"
+        return $false
+    }
+    $SqlUser = $SqlLogins | Where-Object { $_.name -like $UserName }
+    if ($null -ne $sqlUser -and $SqlUser.Count -gt 0) {
+        Write-Error "Attempting to rename UserName: $OldUserName is unable to complete because UserName: $UserName already in Logins."
+        return $false
+    }
+    $SqlUser = $SqlLogins | Where-Object { $_.name -like $OldUserName }
+    if ($null -ne $sqlUser -and $SqlUser.Count -gt 0) {
+        try {
+            Write-Verbose "Renaming previous UserName: $OldUserName to new UserName: $UserName on SQL Server: $SQLServerName"
+            $SqlUser.Rename($NewName)
+            Write-Verbose "Renamed User: $UserName for SQL Server: $SQLServerName"
+        }
+        catch {
+            Write-Error "Failed to rename User: $OldUserName to $UserName on server: $SQLServerName`n  If you recently changed the host name, you may need to reboot first."
+            return $false
+        }
+        return $true
+    }
+    else {
+        Write-Verbose "UserName: $OldUserName not found in SQL Logins"
+        return $false
+    }
+}
+function Add-UserSQLRole {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [ValidateNotNullOrEmpty()][string]$UserName,
+        [string] $IntegratedSecurityRole = 'sysadmin',     # Should this be less powerful?
+        [string] $SQLServerName = "."                      # Local machine by default
+    )
+    try {
+        $SQLServer = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
+        Write-Verbose "Adding $UserName to $IntegratedSecurityRole on SQL Server: $SQLServerName"
+        $serverRole = $SQLServer.Roles | Where-Object {$_.Name -eq $IntegratedSecurityRole}
+        $serverRole.AddMember($UserName)
+        Write-Verbose "Added User: $UserName to Role: $IntegratedSecurityRole for SQL Server: $SQLServerName"
+    }
+    catch {
+        Write-Error "Failed to add user: $UserName to SQL Server role: $IntegratedSecurityRole on server: $SQLServerName`n`n Error: $_"
+    }
+}
+function Add-SQLIntegratedSecurityUser {
+    [CmdletBinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [ValidateNotNullOrEmpty()][string] $UserName,
+        [string] $IntegratedSecurityRole,
+        [string] $SQLServerName
+    )
+    $success = Add-SQLUser -UserName $UserName -SQLServerName $SQLServerName -Verbose:$VerbosePreference
+    Add-UserSQLRole -UserName $UserName -IntegratedSecurityRole $IntegratedSecurityRole -SQLServerName $SQLServerName -Verbose:$VerbosePreference
+}
+function Update-SQLIntegratedSecurityUser {
+    [CmdletBinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [ValidateNotNullOrEmpty()][string] $UserName,
+        [ValidateNotNullOrEmpty()][string] $ComputerName,
+        [ValidateNotNullOrEmpty()][string] $PreviousComputerName,
+        [string] $IntegratedSecurityRole,
+        [string] $SQLServerName
+    )
+    Write-Verbose "Updating UserName:$UserName from: $PreviousComputerName to: $ComputerName"
+    if ($ComputerName -like $PreviousComputerName) {
+        Write-Warning "ComputerName and PreviousComputerName are set to the same value, won't be able to update an existing user login."
+    }
+    if ($UserName -like "$PreviousComputerName\*") {
+        Write-Warning "Username: $UserName includes previous computer name:$PreviousComputerName `n   Removing computer name from user name"
+        $UserName=$UserName -Replace "$PreviousComputerName\\(?<user>.*)",'${user}'
+        Write-Warning " !!  Changing the hostname and SQL Server logins will require the system to be rebooted before initial use.  !!"
+    }
+    if ((!($UserName -like "$ComputerName\*")) -and ($UserName -like "*\*")) {
+        Write-Error "UserName: $UserName includes a different domain than the computer name. `n   Cmdlet will not attempt to rename domain users."
+    }
+    else {
+        $JustName = $UserName
+        $NewName = $UserName
+        if ($UserName -like "$ComputerName\*") {
+            $JustName = $Username -Replace "$ComputerName\\(?<user>.*)",'${user}'
+            $OldName = "$PreviousComputerName\$JustName"
+        }
+        else {
+            $OldName = "$PreviousComputerName\$UserName"
+            $NewName = "$ComputerName\$UserName"
+        }
+        Write-Verbose "Updating UserName:$OldName to UserName:$NewName on server:$SQLServerName"
+        $success = Update-SQLUser -UserName $NewName -OldUserName $OldName -SQLServerName $SQLServerName -Verbose:$VerbosePreference
+        if (!$success) {
+            Write-Verbose "Updating failed, adding user instead."
+            $success = Add-SQLUser -UserName $UserName -SQLServerName $SQLServerName -Verbose:$VerbosePreference
+        }
+    }
+    Add-UserSQLRole -UserName $UserName -IntegratedSecurityRole $IntegratedSecurityRole -SQLServerName $SQLServerName -Verbose:$VerbosePreference
 }
 function Install-MSSQLserverExpress {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
@@ -516,7 +724,7 @@ function Install-MSSQLserverExpress {
         [string] $SQLINST="MSSQLSERVER"
     )
     # Verify that the file folder is present
-    if (! $(Try { Test-Path $FilePath.trim() } Catch { $false }) ) {
+    if (! $(try { Test-Path $FilePath } Catch { $false })) {
         New-Item -ItemType Directory -Force -Path $FilePath
     }    
     #
@@ -537,7 +745,7 @@ function Install-MSSQLserverExpress {
     $MSSEPATH = "$FilePath\SQLEXPR_x64_ENU"
     $MSSESETUP = "$MSSEPATH\setup.exe"
     # Download, unpack, and install while setting the default instance name - will probably need to periodically refreshed until choco install works 
-    if (!$(Try { Test-Path $MSSEFILE.trim() } Catch { $false })) {
+    if (! $(try { Test-Path $MSSEFILE } Catch { $false }) ) {
         try {
             Invoke-WebRequest -Uri $MSSQLEURL -OutFile $MSSEFILE
         }
@@ -545,40 +753,30 @@ function Install-MSSQLserverExpress {
             Write-Error "Failed to download SQL Server Express from $MSSQLEURL and store in $MSSEFILE  Check URL and permission on path.  Error: $_"
         }
     }
-    if (!$(Try { Test-Path $MSSEPATH.trim() } Catch { $false })) {
-        Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList "/q","/x:$MSSEPATH"
+    if ( $(try { Test-Path $MSSEFILE } Catch { $false }) ) {
+        if (! ($(Try { Test-Path $MSSEPATH } Catch { $false })) -or ($(Try { Test-Path $MSSESETUP } Catch { $false }))) {
+           Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList "/q","/x:$MSSEPATH"
+        }
     }
-    if (!$(Try { Test-Path $MSSESETUP.trim() } Catch { $false })) {
-        Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList "/q","/x:$MSSEPATH"
-    }
-    if (!$(Try { Test-Path $MSSESETUP.trim() } Catch { $false })) {
-        Write-Verbose "$MSSESETUP not found after download and extract!"
-        Write-Verbose "Failed to install SQL Server Express!"
-        return
-    }
-    Start-Process $MSSEFILE -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/ACTION=install","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/UPDATEENABLED=FALSE"
-    #
-    Update-SessionEnvironment
-    # If SQL Express manual install failed, try Choco. 
-    # This will use the default SQL Express instance name so we
-    # change SQLINST 
-    if (!(Test-Path "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL")) {
+    if ($(Try { Test-Path $MSSESETUP } Catch { $false })) {
+        Start-Process $MSSEFILE -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/ACTION=install","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/UPDATEENABLED=FALSE"
+    } else {
+        Write-Verbose "$MSSESETUP not found after attempt to download and extract!`nSetting instance name to SQLEXPRESS and installing with chocolatey instead."
+        # If SQL Express manual install failed, try Chocolatey
+        # This will use the default SQL Express instance name so we change SQLINST first
         $SQLINST = "SQLEXPRESS"
         Install-Choco "sql-server-express"
     }
     if (!(Test-Path "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL")) {
         throw "SQL Server failed to install, installation canceled" 
     }
-        #
+    #
+    Update-SessionEnvironment
+    #
     Install-SqlServerModule
     #
     # Use freshly installed MS SQL Server
     Enable-TCPonSQLInstance -SQLINST $SQLINST
-    # !!!!!
-    # The default passwords may not work for SQL Auth, so this step we'll weaken them.
-    # This shouldn't be necessary for auto-generated passwords on most cloud provider builds
-    # !!!!!
-    Set-WeakPasswordComplexity -FilePath $FilePath
     return $SQLINST
         #
 }
@@ -681,7 +879,7 @@ function Add-DesktopAppLinks {
         [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
         param (
             $AppURIs,
-            $DnsName,
+            $DnsName="localhost",
             $SolutionName="Ed-Fi Tools",
             $EdFiWebDir="C:\Ed-Fi\www"
         )
@@ -731,20 +929,20 @@ function Add-DesktopAppLinks {
             $SolutionWebDir="C:\Ed-Fi\www",
             $VirtualDirectoryName="EdFiWWW",
             $AppName="EdFiSolutions",
-            $iisConfig=@{ iisUser="IIS_IUSRS"; defaultSiteName="Default Web Site"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
+            $iisConfig=@{ iisUser="IIS_IUSRS"; SiteName = "Default Web Site"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
         )
         Write-Verbose "Generating Ed-Fi Solutions website for local IIS homepage"
         $solutionsHtml="$SolutionWebDir\SolutionItems.html"
         $headerHtml="$SolutionWebDir\SolutionHeader.html"
         $footerHtml="$SolutionWebDir\SolutionFooter.html"
         $indexHtml="$SolutionWebDir\index.html"
-        Set-PermissionsOnPath -Path $SolutionWebDir -User $iisConfig.iisUser -Perms "ReadAndExecute"
+        Set-PermissionsOnPath -FilePath $SolutionWebDir -User $iisConfig.iisUser -Perms "ReadAndExecute"
         Get-Content -Path $headerHtml | Set-Content $indexHtml
         Get-Content -Path $solutionsHtml | Add-Content -Path $indexHtml
         Get-Content -Path $footerHtml | Add-Content -Path $indexHtml
         if ($null -eq (Get-WebApplication -Name $AppName)) {
-            New-WebVirtualDirectory -Site $iisConfig.defaultSiteName -Name $VirtualDirectoryName -PhysicalPath $SolutionWebDir -Force
-            New-WebApplication -Name $AppName  -Site "$($iisConfig.defaultSiteName)\$VirtualDirectoryName" -PhysicalPath $SolutionWebDir -ApplicationPool $($iisConfig.applicationPool) -Force    
+            New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $VirtualDirectoryName -PhysicalPath $SolutionWebDir -Force
+            New-WebApplication -Name $AppName  -Site "$($iisConfig.SiteName)\$VirtualDirectoryName" -PhysicalPath $SolutionWebDir -ApplicationPool $($iisConfig.applicationPool) -Force    
         }
 
     }
