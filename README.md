@@ -4,8 +4,8 @@ These scripts will help you get an Ed-Fi Solution up and running quickly, get so
 See below for more on the these tools themselves.
 ## Solutions Included
 Please refer to the Solution Starter Kit Guides on Ed-Fi Techdocs to get started.
-1. [Chronic Absenteeism](https://techdocs.ed-fi.org/display/~Shannon.Kerlick/Quick+Start+for+the+Chronic+Absenteeism+Solution+Starter+Kit)
-1. [Parent Engagement Portal](https://techdocs.ed-fi.org/display/~Shannon.Kerlick/Quick+Start+for+the+Parent+Engagement+Solution+Starter+Kit)
+1. [Chronic Absenteeism](https://techdocs.ed-fi.org/display/ETKB/Quick+Start+for+the+Chronic+Absenteeism+Solution+Starter+Kit)
+1. [Parent Engagement Portal](https://techdocs.ed-fi.org/display/ETKB/Quick+Start+for+the+Parent+Engagement+Solution+Starter+Kit)
 ## Installing:
 ### System Requirements
 This solution builder requires a machine or virtual machine with internet access.
@@ -13,7 +13,7 @@ Minimum system requirements for solutions (except where noted):
 * 50GB free storage space (before any data is loaded)
 * 4GB of available RAM
 * Windows Server 2019 (or 2016)
-* Access to inbound and outbound connections over HTTPS
+* Access to inbound and outbound connections over HTTPS as well as ephemeral ports (usually 20,000-65,535) used by the web server and, if used, the remote desktop service.
 
 Preferred requirements
 * 1TB storage space
@@ -47,10 +47,10 @@ This guide generally assumes default installation choices, but if at any point y
 #### Advanced installation:
 ***
 1. Copy the files in this repository to the C:\Ed-Fi folder on your installation environment  
-    * [Download ZIP](https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts/archive/master.zip) and uncompress it to **C:\Ed-Fi**
+    * [Download ZIP](https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts/archive/master.zip) and uncompress it to **C:\Ed-Fi**
     * Or use Git to clone the repo to your system:
     ```powershell
-    git clone https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts.git C:\Ed-Fi
+    git clone https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts.git C:\Ed-Fi
     ```
 1. Edit the **EdFiSolutionConfig.json** file to adjust any configuration details for the installer.
     * See the Configuration Guide for more details.
@@ -73,12 +73,12 @@ This guide generally assumes default installation choices, but if at any point y
 
 ### On AWS, 
 #### Using  Cloud Formation
-1. Download the Cloud Formation template file: [EdFiSolutions-AWS-CloudFormation-Win2019-SingleVM.json](https://github.com/skerlick-edfi/Ed-Fi-Solution-Scripts/blob/master/EdFiSolutions-AWS-CloudFormation-Win2019-SingleVM.json)
+1. You can download the Cloud Formation template file: [EdFiSolutions-AWS-CloudFormation-Win2019-SingleVM.json](https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts/raw/master/AWS/EdFiSolutions-AWS-CloudFormation-Win2019-SingleVM.json) or you can use the [AWS S3 copy](https://s3-us-west-1.amazonaws.com/winami3.lambda.edfi.org/EdFiSolutions-AWS-CloudFormation-Win2019-SingleVM.json)
 1. Connect to your AWS Console:\
     `If using your organization's AWS account, check with your system administrators to verify that you have the correct access rights. Admin rights are required to create AWS EC2 instances and other components for your solution.`
 1. Navigate to Cloud Formation under the Management & Governance section of the Services menu
 1. Select Create Stack
-1. Select Upload a template File and choose the file you downloaded in the first step
+1. Select Amazon S3 URL and enter https://s3-us-west-1.amazonaws.com/winami3.lambda.edfi.org/EdFiSolutions-AWS-CloudFormation-Win2019-SingleVM.json  -or-  Select "Upload a template File" and choose the file you downloaded in the first step
 1. Follow the direction in the template to complete your solution setup
 
 #### Launching an EC2 instance directly

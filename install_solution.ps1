@@ -27,6 +27,21 @@ $solcfg = Get-Content $solutions | ConvertFrom-Json
 $EdFiDir = Get-ConfigParam $EdFiDir $cfg.EdFiDir "C:\Ed-Fi"
 $downloadPath = Get-ConfigParam $null $cfg.DownloadPath "$EdFiDir\Downloads"
 $SolutionWebRoot = Get-ConfigParam $null $cfg.SolutionWebRoot "$EdFiDir\www"
+#
+# Get our working directories, logs, and basic security settings
+#
+if (! $(Try { Test-Path $downloadPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+    $tooVerbose = New-Item -ItemType Directory -Force -Path $downloadPath
+}
+if (! $(Try { Test-Path "$SolutionWebRoot\*.html" -ErrorAction SilentlyContinue } Catch { $false }) ) {
+    # Relocate downloaded www directory only if no html files are present locally
+    if ($(Try { Test-Path "$PSScriptRoot\www" -ErrorAction SilentlyContinue } Catch { $false })) {
+        Move-Item -Path "$PSScriptRoot\www" -Destination $SolutionWebRoot -Force
+    }
+}
+Set-Location $EdFiDir
+Start-Transcript -Path "$EdFiDir\solution-install.log"
+
 $DnsName = Get-ConfigParam $DnsName $cfg.DnsName
 $AdminEmail = Get-ConfigParam $AdminEmail $cfg.AdminEmail "techsupport@ed-fi.org"
 $DDNSUrl = Get-ConfigParam $DDNSUrl $cfg.DDNSUrl
@@ -71,29 +86,17 @@ $iisConfig=@{
 #
 # Install type is typically Staging for Populated Template ODS or Prodution for Minimal Template
 $InstallType = Get-ConfigParam $null $cfg.InstallType "Demo"
-Write-Verbose "Configuration params:`nEd-Fi Dir:`"$EdFiDir`"`ndownloadPath:`"$downloadPath`"`nSolutionWebRoot:`"$SolutionWebRoot`"`nDnsName:`"$DnsName`"`newComputerName:`"$NewComputerName`"`nAdminEmail:`"$AdminEmail`"`nDDNSUrl:`"$DDNSUrl`"`nDDNSUsername:`"$DDNSUsername`"`nDDNSPassword:`"$DDNSPassword`"`nSolutionsAppName:`"$SolutionsAppName`"`nGitPrefix:`"$GitPrefix`"`nSQLINST:`"$SQLINST`"`ninstallType:`"$InstallType`""
-Write-Verbose "iisConfig: $($iisConfig | Out-String)"
-#
-# Get our working directories, logs, and basic security settings
-#
-if (! $(Try { Test-Path $downloadPath.trim() } Catch { $false }) ) {
-    New-Item -ItemType Directory -Force -Path $downloadPath
-}
-if (! $(Try { Test-Path "$SolutionWebRoot\*.html" } Catch { $false }) ) {
-    # Relocate downloaded www directory only if no html files are present locally
-    if ($(Try { Test-Path "$PSScriptRoot\www" } Catch { $false })) {
-        Move-Item -Path "$PSScriptRoot\www" -Destination $SolutionWebRoot -Force
-    }
-}
-Set-Location $EdFiDir
-Start-Transcript -Path "$EdFiDir\solution-install.log"
+Write-Verbose "`n----------------`nConfiguration params:`nEd-Fi Dir:`"$EdFiDir`"`ndownloadPath:`"$downloadPath`"`nSolutionWebRoot:`"$SolutionWebRoot`"`nDnsName:`"$DnsName`"`newComputerName:`"$NewComputerName`"`nAdminEmail:`"$AdminEmail`"`nDDNSUrl:`"$DDNSUrl`"`nDDNSUsername:`"$DDNSUsername`"`nDDNSPassword:`"$DDNSPassword`"`nSolutionsAppName:`"$SolutionsAppName`"`nGitPrefix:`"$GitPrefix`"`nSQLINST:`"$SQLINST`"`nInstallType:`"$InstallType`""
+Write-Verbose "iisConfig: $(Convert-HashtableToString $iisConfig)`n----------------`n"
 #
 # Save the old hostname for fixing install stuff. Then set the hostname right
 $oldComputerName="$Env:ComputerName"
 if (!($oldComputerName -like $NewComputerName)) {
-#    Rename-Computer -NewName "$NewComputerName" -Force
-    Write-Verbose "Skipping rename of Computer to $NewComputerName"
-    $NewComputerName=$oldComputerName
+    Rename-Computer -NewName "$NewComputerName" -Force
+    $netdomCmd = (Get-Command "netdom.exe" -ErrorAction SilentlyContinue).Source
+    & $netdomCmd computername "$NewComputerName" /add:"$DnsName"
+    Write-Verbose "Renamed Computer to $NewComputerName"
+#    $NewComputerName=$oldComputerName
 }
 #
 # Enable Windows features - Must haves
@@ -112,11 +115,11 @@ Write-Verbose "Installed Packages $($cfg.baseChocoPackages)"
 # Configure public DNS hostname and use it to get Lets Encrypt SSL Cert 
 $hostIP=Get-ExternalIP -Verbose:$VerbosePreference
 Write-Verbose "Host IP: $hostIP"
-if (!([string]::IsNullOrEmpty($DnsName) -and ("edfisolsrv" -ne $DnsName))) {
+if (![string]::IsNullOrEmpty($DnsName) -and ("edfisolsrv" -ne $DnsName)) {
     # Add the dns name to loopback address in servers hosts file to avoid any network vs web app config issues
     Add-NameToHostsFile $DnsName
     # Now update Dynamic DNS if credentials supplied   
-    if (!([string]::IsNullOrEmpty($dynCredentials) -or [string]::IsNullOrEmpty($DDNSUrl))) {
+    if ($null -ne $dynCredentials -and ![string]::IsNullOrEmpty($DDNSUrl)) {
         Update-DynDNS -HostDNS $DnsName -IP $hostIP -ProviderUrl $DDNSUrl -Credentials $dynCredentials -Verbose:$VerbosePreference
         Start-Sleep -Seconds 2
         Write-Verbose "Dyn DNS name: $DnsName set to IP: $hostIP"
@@ -165,13 +168,12 @@ Write-Verbose "SSL configuration for IIS complete"
 #
 # Add IIS special integrated user to SQL Server login along with those in Users group for Demo mode
 Add-SQLIntegratedSecurityUser -UserName $iisConfig.integratedSecurityUser -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
-# Now get all of the Administrators group (and Users if Demo) members added to make this actually work
-$LocalUsers=(@(Get-LocalGroupMember "Administrators") | Where-Object {$_.ObjectClass -like "User"}).Name
+# Now get all of the Users group (if Demo) members added to make this actually work
 if ($InstallType -like "Demo") {
-    $LocalUsers=(@(Get-LocalGroupMember "Administrators") + @(Get-LocalGroupMember "Users") | Where-Object {$_.ObjectClass -like "User"}).Name
-}
-foreach ($usr in $LocalUsers) {
-    Update-SQLIntegratedSecurityUser -UserName $usr -ComputerName $NewComputerName -PreviousComputerName $oldComputerName -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
+    $LocalUsers=(@(Get-LocalGroupMember "Users") | Where-Object {$_.ObjectClass -like "User"}).Name
+    foreach ($usr in $LocalUsers) {
+        Update-SQLIntegratedSecurityUser -UserName $usr -ComputerName $NewComputerName -PreviousComputerName $oldComputerName -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
+    }
 }
 #
 # Get the list of Solutions from the config file
@@ -250,21 +252,46 @@ $LocalAppLinks = @(
     @{ name= "Ed-Fi Solutions Homepage"; type= "URL"; URI="https://$DnsName/EdFi" }
     )
 Add-DesktopAppLinks $LocalAppLinks ".."
+Write-Verbose "Preparing for Windows Update"
+Stop-Transcript
 Install-Module PSWindowsUpdate -Force
 Add-WUServiceManager -MicrosoftUpdate -confirm:$false
 $announcement = @"
-***********************************************************************
-*                                                                     *
-* Your Ed-Fi Solution Installation is complete                        *
-*                                                                     *
-* See Solution installation details:                                  *
-*                                                                     *
-*   https://$DnsName/EdFi                                             *
-*                                                                     *
-* Beginning Windows Update to install security fixes/update in 10s    *
-*  !!! Press CTRL-C to stop the update process !!!                    *
-*                                                                     *
-***********************************************************************
+***************************************************************
+*                                                             *
+*  Complete: Ed-Fi Solution Installation                      *
+*  Begin: Windows Update                                      *
+*           to install security fixes/updates                 *
+*                                                             *
+* See Solution installation packages while you wait:          *
+*                                                             *
+*   https://$DnsName/EdFi                                     *
+*                                                             *
+*  !!! You can press CTRL-C to stop the update process  !!!   *
+*  !!!  if you prefer to update later.                  !!!   *
+*                                                             *
+***************************************************************
+"@
+Write-Host $announcement
+Write-Verbose "Performing Windows Update"
+#
+# Now force a full update
+#
+# Get-WindowsUpdate
+Install-WindowsUpdate -MicrosoftUpdate -AcceptAll -AutoReboot
+#
+$announcement = @"
+***************************************************************
+*                                                             *
+* Please reboot your system now to apply updates any updates  *
+*                                                             *
+* The Ed-Fi Solution Installation is complete                 *
+*                                                             *
+* See Solution installation packages here:                    *
+*                                                             *
+*   https://$DnsName/EdFi                                     *
+*                                                             *
+***************************************************************
 "@
 Write-Host $announcement
 if ($DnsName -eq $NewComputerName) {
@@ -273,25 +300,3 @@ if ($DnsName -eq $NewComputerName) {
 else {
     Start-Process "https://$DnsName/EdFi"
 }
-Write-Verbose "Performing Windows Update"
-Stop-Transcript
-#
-# Now force a full update
-#
-# Get-WindowsUpdate
-Install-WindowsUpdate -MicrosoftUpdate -AcceptAll -AutoReboot
-#
-$announcement = @"
-***********************************************************************
-*                                                                     *
-* Please reboot your system now to make sure all updates are applied  *
-*                                                                     *
-* Your Ed-Fi Solution Installation is complete                        *
-*                                                                     *
-* See Solution installation details:                                  *
-*                                                                     *
-*   https://$DnsName/$SolutionsAppName                                *
-*                                                                     *
-***********************************************************************
-"@
-Write-Host $announcement

@@ -18,71 +18,55 @@ Function Install-BaseEdFi {
     $binariesConfigFile="$PSScriptRoot\binaries.ps1"
     $versionNum = 'v'+$SuiteVersion.Replace(".", "")
     $directories = @{
-        dataFile = @{ path="$EdFiDir\dbs";perms=""};
-        logFile = @{ path="$EdFiDir\dbs";perms=""};
-        download = @{ path="$EdFiDir\downloads";perms="Modify"};
-        install = @{ path="$EdFiDir\v$SuiteVersion-$InstallType";perms="ReadAndExecute"};
-        appLog = @{ path="$EdFiDir\logs";perms="Modify"};
-        dbBackup = @{ path="$EdFiDir\v$SuiteVersion-$InstallType\dbs";perms=""}
+        dbPath = "$EdFiDir\dbs";
+        download = "$EdFiDir\downloads";
+        install = "$EdFiDir\v$SuiteVersion-$InstallType";
+        appLog = "$EdFiDir\logs"
     }
-    $dataFilePath = "$EdFiDir\dbs"
-    $logFilePath  = "$EdFiDir\dbs"
-    $downloadPath = "$EdFiDir\downloads"
-    $installPath = "$EdFiDir\v$SuiteVersion-$InstallType"
-    $appLogPath="$EdFiDir\logs"
+    $dirPermissions = @{
+        dbPath = @{ 
+            iis="NoAccess";
+            userPerms="" };
+        download = @{ 
+            iisPerms="Modify";
+            userPerms="Modify" };
+        install = @{ 
+            iisPerms="ReadAndExecute";
+            userPerms="" };
+        appLog = @{ 
+            iisPerms="Modify";
+            userPerms="ReadAndExecute" }
+    }
     # IIS settings
     $virtualDirectoryName = "$versionNum-$InstallType"
     $appsBaseUrl = "https://$DnsName/$virtualDirectoryName"
     $apiBaseUrl = "$appsBaseUrl/api"
     # Database vars
-    $backupLocation = "$installPath\dbs"
-    $dbNamePrefix = "$InstallType"
-    $dbNameSufix = "$versionNum"
+    $backupLocation = "$EdFiDir\v$SuiteVersion-$InstallType\dbs"
+    $NamePrefix = "$InstallType"
+    $NameSuffix = "$versionNum"
     $logFileSuffix = "$($versionNum)-$($InstallType)"
     $odsName="" # Will add prefix and suffix so ODS name could be: Staging_EdFiODS_v340
     # 1. Ensure paths exist and set permissions accordingly
-    if (! $(Try { Test-Path $EdFiDir } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $EdFiDir 
+    if (! $(Try { Test-Path $EdFiDir -ErrorAction SilentlyContinue } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $EdFiDir
     }
-    Set-PermissionsOnPath $EdFiDir "Users" "Modify"  # TODO: Give Users group Modify access to avoid any problems. This might need to be adjusted with a new group.
-    Set-PermissionsOnPath $EdFiDir $iisConfig.iisUser "ReadAndExecute" # TODO: Give execute access to main dir, might want to lock down better.
-    foreach ($dir in $directories.Keys) {
-        if (! $(Try { Test-Path $dir.path } Catch { $false }) ) {
-            New-Item -ItemType Directory -Force -Path $directories[$dir].path 
-        }
-        if (![string]::IsNullOrEmpty($directories[$dir].perms)) {
-            Set-PermissionsOnPath $directories[$dir].path $iisConfig.iisUser $directories[$dir].perms # TODO: Review security
-        }
-    }
-    if (! $(Try { Test-Path $installPath } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $installPath 
-    }
-    Set-PermissionsOnPath $installPath $iisConfig.iisUser "ReadAndExecute" # TODO: Give read and execute access to install dir.
-    if (! $(Try { Test-Path $downloadPath } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $downloadPath
-    }
-    Set-PermissionsOnPath $downloadPath $iisConfig.iisUser "Modify" # TODO: Modify access to downloads for IIS.
-    if (! $(Try { Test-Path $appLogPath } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $appLogPath
-    }
-    Set-PermissionsOnPath $appLogPath $iisConfig.iisUser "Modify" # TODO: Modify access to log dir for IIS.
-    if (! $(Try { Test-Path $dataFilePath } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $dataFilePath
-    }
-    Set-PermissionsOnPath $dataFilePath $iisConfig.iisUser "NoAccess" # TODO: Block IIS on data files.
-    if (! $(Try { Test-Path $logFilePath } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $logFilePath
-    }
-    Set-PermissionsOnPath $logFilePath $iisConfig.iisUser "NoAccess" # TODO: Block IIS on log files.
+    # TODO: Give Users group Modify access to avoid any problems, just this folder. This might need to be adjusted with a new group.
+    Set-PermissionsOnPath $EdFiDir "Users" "Modify" "ObjectInherit"
+    # TODO: Give execute access to main dir without inheritance to containers, might want to lock down better.
+    Set-PermissionsOnPath $EdFiDir $iisConfig.iisUser "Traverse"
     #
-    # 2. Add main virtual directory for this Ed-Fi Suite to IIS
-    $tooVerbose=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -PhysicalPath $installPath -Force
-    Write-Verbose "New-WebVirtualDirectory: $tooVerbose"
+    foreach ($dirkey in $directories.Keys) {
+        Add-AppDirectory -iisUser $iisConfig.iisUser -dirPath $directories[$dirkey] -iisPerms $dirPermissions[$dirkey].iisPerms -userPerms $dirPermissions[$dirkey].userPerms
+    }
     #
+    $appLogPath = $directories.appLog
     # Binaries Metadata
     $binaries = Invoke-Expression (Get-Content -Raw -Path $binariesConfigFile)
-    Write-Verbose "Configuration table:"
     #
+    # 2. Add main virtual directory for this Ed-Fi Suite to IIS
+    $tooVerbose=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -PhysicalPath $directories.install -Force
+    Write-Verbose "New-WebVirtualDirectory: $tooVerbose"
     # Create a table to collect the URLs for later use
     $appURLTable = @(
         @{ name= "Ed-Fi API $virtualDirectoryName"; type= "URL"; URI="/$virtualDirectoryName/api" }
@@ -93,8 +77,8 @@ Function Install-BaseEdFi {
     foreach ($b in $binaries | Where-Object {($_.requiredInInstallTypes.Contains($InstallType)) -or (!$_.requiredInInstallTypes)}) {
         # Concatenate path for binary from name and dl location.
         # Note: all NuGet packages are zips.
-        $dlFilePath = "$downloadPath\$($b.name)$SuiteVersion.zip"
-        $pkgInstallPath = "$installPath\$($b.name)"
+        $dlFilePath = "$($directories.download)\$($b.name)$SuiteVersion.zip"
+        $pkgInstallPath = "$($directories.install)\$($b.name)"
         $downloadUrl = $b.url
         if($b.urlVersionOverride -and $b.urlVersionOverride[$versionNum]){ $downloadUrl = $b.urlVersionOverride[$versionNum] }
         Copy-WebArchive -Url $downloadUrl -InstallPath $pkgInstallPath -FilePath $dlFilePath
@@ -105,7 +89,7 @@ Function Install-BaseEdFi {
     # 4. Loop back over webapps and add them to IIS, then update Web.config values AppSettings, ConnStrings and Log Files
     foreach ($b in $binaries | Where-Object {($_.type -eq "WebApp") -and (($_.requiredInInstallTypes.Contains($InstallType)) -or (!$_.requiredInInstallTypes))}) {
         $appName = $b.name
-        $appPhysicalPath = "$installPath\$appName"
+        $appPhysicalPath = "$($directories.install)\$appName"
         $applicationIISPath = "$($iisConfig.SiteName)/$virtualDirectoryName/$appName"
         $tooVerbose=New-WebApplication -Name $appName  -Site "$($iisConfig.SiteName)\$virtualDirectoryName" -PhysicalPath $appPhysicalPath -ApplicationPool $($iisConfig.applicationPool) -Force
         Write-Verbose "New-WebApplication: $tooVerbose"
@@ -145,12 +129,12 @@ Function Install-BaseEdFi {
         # v2.x
         if($versionNum -eq "v260") { 
             if($b.name -eq "AdminApp") {
-                $secretJsonPhysicalPath = "$installPath\$($b.name)\secret.json"
+                $secretJsonPhysicalPath = "$($directories.install)\$($b.name)\secret.json"
                 Set-IntegratedSecurityInSecretJsonFile($secretJsonPhysicalPath)
             }
 
             if($b.name -eq "Docs") {
-                $swaggerDefaultHtmlPath = "$installPath\$($b.name)\default.html"
+                $swaggerDefaultHtmlPath = "$($directories.install)\$($b.name)\default.html"
                 Set-DocsHTMLPathsToWorkWithVirtualDirectories($swaggerDefaultHtmlPath)
             }
         }
@@ -159,7 +143,7 @@ Function Install-BaseEdFi {
     $apiDatabases = ($binaries | Where-Object {$_.name -eq "Api"}).databases;
     foreach($db in $apiDatabases | Where-Object {($_.InstallType -eq $InstallType) -or (!$_.InstallType)}) {
         $dbBackupFile = "$backupLocation\$($db.src).bak"
-        Restore-Database $db.src $db.dest $dbBackupFile $dataFilePath $logFilePath
+        Restore-Database $db.src $db.dest $dbBackupFile $directories.dbPath
     }
 
     # 6. Setup Sandbox types
@@ -170,7 +154,7 @@ Function Install-BaseEdFi {
 
         foreach ($b in $binaries | Where-Object {($_.type -eq "WebApp") -and (($_.requiredInInstallTypes.Contains($InstallType)) -or (!$_.requiredInInstallTypes))}) 
         {
-            $appPhysicalPath = "$installPath\$($b.name)\Web.Config"
+            $appPhysicalPath = "$($directories.install)\$($b.name)\Web.Config"
 
             if($b.webConfigTagPostInstall){ 
                 Set-TagInWebConfig $appPhysicalPath $b.webConfigTagPostInstall
@@ -196,7 +180,26 @@ Function Install-BaseEdFi {
 
 }
 # Region: Web.Config Functions
-
+function Add-AppDirectory {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        $iisUser,
+        $dirPath,
+        $iisPerms,
+        $userPerms
+    )
+    Write-Verbose "  Add-AppDirectory -iisUser $iisUser -dirPath $dirPath -iisPerms $iisPerms -userPerms $userPerms"
+    # Such as dirPath="$EdFiDir\item", iisPerms="NoAccess", userPerms="Modify"
+    if (! $(Try { Test-Path $dirPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $dirPath
+    }
+    if (![string]::IsNullOrEmpty($iisPerms)) {
+        Set-PermissionsOnPath $dirPath $iisUser $iisPerms -Verbose:$VerbosePreference # TODO: Review security
+    }
+    if (![string]::IsNullOrEmpty($userPerms)) {
+        Set-PermissionsOnPath $dirPath "Users" $userPerms -Verbose:$VerbosePreference # TODO: Review security
+    }
+}
 # dictionary in this case is a Hash with @{"xPath" = "Value"}
 # for example: @{"//initialization" = "<users>....</users>"}
 Function Set-TagInWebConfig($webConfigPath, $dictionary)
@@ -286,13 +289,26 @@ Function Set-IntegratedSecurityInSecretJsonFile($jsonFilePath) {
 # endregion
 
 # Region: MsSQL Database Functions
-Function Restore-Database($dbSource, $dbDestinationName, $dbBackupPath, $dataFilePath, $logFilePath) {
-    Write-Verbose "Restore database $dbSource as $dbDestinationName from file $dbBackupPath on datapath $dataFilePath logpath $logFilePath"
+Function Restore-Database {
+    param (
+        $dbSource, 
+        $dbDestinationName, 
+        $dbBackupPath, 
+        $dbPath,
+        $SQLServerName="."
+        )
     $server = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
-    if($null -eq $dataFilePath) {$dataFilePath = $(if ($server.Settings.DefaultFile) {$server.Settings.DefaultFile} else {$server.Information.MasterDBPath})}
-    if ($null -eq $logFilePath) {$logFilePath = $(if ($server.Settings.DefaultLog) {$server.Settings.DefaultLog} else {$server.Information.MasterDBLogPath})}
+    if ($null -eq $dbPath) {
+        $dataFilePath = $(if ($server.Settings.DefaultFile) {$server.Settings.DefaultFile} else {$server.Information.MasterDBPath})
+        $logFilePath = $(if ($server.Settings.DefaultLog) {$server.Settings.DefaultLog} else {$server.Information.MasterDBLogPath})
+    }
+    else {
+        $dataFilePath=$dbPath
+        $logFilePath=$dbPath
+    }
     $dbRestorePath = "$dataFilePath\$dbDestinationName.mdf"
     $logRestorePath = "$logFilePath\$dbDestinationName.ldf"
+    Write-Verbose "Restore database $dbSource as $dbDestinationName from file $dbBackupPath to $dbRestorePath with log $logRestorePath"
 
     $backupDeviceItem = New-Object Microsoft.SqlServer.Management.Smo.BackupDeviceItem -ArgumentList $dbBackupPath,'File'
     $restore = New-Object Microsoft.SqlServer.Management.Smo.Restore
@@ -315,7 +331,7 @@ Function Restore-Database($dbSource, $dbDestinationName, $dbBackupPath, $dataFil
         $tooVerbose = $restore.SqlRestore($server)
     }
     catch {
-        Write-Error "Exception: $($_.Exception) Details: $_"
+        Write-Error " Unable to restore core database from backup.`n   Exception: $($_.Exception) Details: $_"
     }
     Write-Verbose "Restore of database completed:`n  $tooVerbose"
 }

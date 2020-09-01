@@ -78,7 +78,7 @@ function Copy-GitRepo {
     Write-Verbose "Cloning repo: $repoURL to $InstallPath"
     if (!(Get-Command "git.exe" -ErrorAction SilentlyContinue)) {
         Install-Choco "git"
-        if(!(Test-Path "C:\Program Files\Git\cmd\git.exe")) {
+        if(!(Test-Path -ErrorAction SilentlyContinue "C:\Program Files\Git\cmd\git.exe")) {
             Write-Error "Error: Git not found on default installation path! Failed to clone repository!"
             return
         }
@@ -114,8 +114,8 @@ function Copy-WebArchive {
         [string]$DownloadsPath
     )
     if ($null -eq $FilePath) {
-        if (! $(Try { Test-Path $DownloadsPath.trim() } Catch { $false }) ) {
-            New-Item -ItemType Directory -Force -Path $DownloadsPath
+        if (! $(Try { Test-Path -ErrorAction SilentlyContinue $DownloadsPath } Catch { $false }) ) {
+            $tooVerbose = New-Item -ItemType Directory -Force -Path $DownloadsPath
         }
         if ( $Url -match 'http.*\/(?<filename>[^/?]*)\??[^/]*' ){
             $FilePath="$DownloadsPath\$($matches["filename"])"
@@ -142,12 +142,12 @@ function Copy-WebArchive {
     if ($null -eq $FilePath) {
         throw "FilePath not set or unable to determine filename from URL."
     }
-    if (Test-Path $FilePath -PathType Container) {
+    if (Test-Path -ErrorAction SilentlyContinue $FilePath -PathType Container) {
         Write-Error "Folder at Path: $FilePath already exists! Canceling download and extract"
         return
     }
     else {
-        if (Test-Path $FilePath -PathType Leaf) {
+        if (Test-Path -ErrorAction SilentlyContinue $FilePath -PathType Leaf) {
             Write-Verbose "File exists, skipping download for Path: $FilePath."
         }
         else {
@@ -164,7 +164,7 @@ function Copy-WebArchive {
             }
         }
     }
-    if (Test-Path $InstallPath -PathType Leaf) {
+    if (Test-Path -ErrorAction SilentlyContinue $InstallPath -PathType Leaf) {
         Write-Verbose "Warning! Install Path not empty: $InstallPath `n Attempting to overwrite anyway."
         # Remove-Item $InstallPath -Recurse -Force
     }
@@ -197,13 +197,13 @@ function Install-NugetPackage {
         [string] $FilePath = "C:\Ed-Fi\Downloads"
     )
     # Verify that the Downloads folder is present
-    if (! $(Try { Test-Path $FilePath.trim() } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $FilePath
+    if (! $(Try { Test-Path -ErrorAction SilentlyContinue $FilePath } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $FilePath
     }    
     $downloadedPackagePath = Join-Path $FilePath "$packageName.$version"
     if (!(Get-Command "nuget.exe" -ErrorAction SilentlyContinue)) {
         Install-Choco "nuget.commandline"
-        if(!(Test-Path "C:\ProgramData\chocolatey\bin\nuget.exe")) {
+        if(!(Test-Path -ErrorAction SilentlyContinue "C:\ProgramData\chocolatey\bin\nuget.exe")) {
             return "Error: Git not installed!"
         }
         else {
@@ -228,7 +228,7 @@ function Get-ExternalIP {
     }
     catch { 
         Write-Error "Failed to discover public IP address.  Error: $_ "
-        return $false
+        return $null
     } 
     $IPregex='(?<Address>(\b(([01]?\d?\d|2[0-4]\d|25[0-5])\.){3}([01]?\d?\d|2[0-4]\d|25[0-5])\b))'
     if ($ExtIP.Content -Match $IPregex) {
@@ -236,32 +236,44 @@ function Get-ExternalIP {
     }
     else {
         Write-Error "Failed to parse IP address from showextip.  Error: $_ "
-        return $false
+        return $null
     }
+}
+function Get-InternalIP {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param ()
+    try {
+        # Grabs the list of system IP addresses which are either manually assigned or assigned via DHCP, then sorts them in index order
+        # Index order may not be route order but that is usually the case
+        # $locRoutes = Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort-Object -Property ifMetric
+        # $IntIPs = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $locRoutes[0].ifIndex |Sort-Object -Property ifIndex
+        $IntIP = (Get-NetIPAddress -AddressState Preferred -AddressFamily IPv4 -InterfaceIndex (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |Sort-Object -Property ifIndex)[0].ifIndex).IPAddress
+    }
+    catch { 
+        Write-Error "Failed to collect system IP addresses.`n  Error: $_ "
+        return $null
+    } 
+    return $IntIP
 }
 function Add-NameToHostsFile {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$DnsName
     )
-    # Setting a hosts entry for the given name on loopback IP address to bypass DNS
+    # Setting a hosts entry for the given name on local IP address to attempt to bypass DNS
     $hostsFilePath = "$($Env:WinDir)\system32\Drivers\etc\hosts"
     $hostsFile = Get-Content $hostsFilePath
     $escapedHostname = [Regex]::Escape($DnsName)
     $loopbackIP="127.0.0.1"
-    if (!(($hostsFile) -match ".*$loopbackIP\s+$escapedHostname.*")) {
-        Add-Content -Encoding UTF8  $hostsFilePath ("$loopbackIP".PadRight(20, " ") + "$DnsName")
+    $localIP=Get-InternalIP -Verbose:$VerbosePreference
+    if ($null -eq $localIP -or $localIP -like $loopbackIP) {
+        Write-Warning "Unable to determine local ip address.  Skipping update of hosts file."
+        return
     }
-    Write-Verbose "Loopback address mapping to $DnsName added to Hosts file"
-    #
-    # Add hosts entries for all local ip addresses mapped to given name
-    #$localIPAddresses = Get-NetIPAddress -AddressState Preferred -AddressFamily IPv4 | Select-Object IPAddress
-    #foreach ($localIP in $localIPAddresses) {
-    #    if (!(($hostsFile) -match ".*$localIP\s+$escapedHostname.*")) {
-    #        Add-Content -Encoding UTF8  $hostsFilePath ("$localIP".PadRight(20, " ") + "$HostDNS")
-    #    }
-    #}
-    #
+    if (!(($hostsFile) -match ".*$localIP\s+$escapedHostname.*")) {
+        Add-Content -Encoding UTF8  $hostsFilePath ("$localIP".PadRight(20, " ") + "$DnsName") -Verbose:$VerbosePreference
+    }
+    Write-Verbose "Local address mapping to $DnsName added to Hosts file"
 }
 function Update-DynDNS {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
@@ -278,7 +290,7 @@ function Update-DynDNS {
     try {
         "Updating DDNS for {0} with IP {1}" -f $HostDNS, $IP | Write-Verbose
         $ProviderUrl = $ProviderUrl -replace "{DnsName}",$HostDNS -replace "{IP}",$IP
-        $Result = Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent "EdFiAlliance SolutionBuilder"
+        $Result = Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent "EdFiAlliance SolutionBuilder" -Verbose:$VerbosePreference
         Write-Verbose "DDNS updated"
     }
     catch {
@@ -297,8 +309,8 @@ function Get-SelfSignedCertificate {
         [string] $FilePath="C:\Ed-Fi"
     )
     # Verify that the file folder is present
-    if (! $(Try { Test-Path $FilePath.trim() } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $FilePath
+    if (! $(Try { Test-Path -ErrorAction SilentlyContinue $FilePath } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $FilePath
     }    
     # Returns the Certificate Thumbprint if successful
     # Stores Self-Signed Cert in Cert:\LocalMachine\My and then in Cert:\LocalMachine\Root to avoid problems with invalid cert chains
@@ -547,8 +559,8 @@ function Set-WeakPasswordComplexity {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param ([string] $FilePath="C:\Ed-Fi")
      # Verify that the file folder is present
-     if (! $(Try { Test-Path $FilePath.trim() } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $FilePath
+     if (! $(Try { Test-Path -ErrorAction SilentlyContinue $FilePath } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $FilePath
     }  
     Write-Verbose "Allowing weak password complexity on Windows to prevent SQL Server from failing to login."
     # We have to disable password complexity so that SQL connections don't fail with default passwords
@@ -682,13 +694,10 @@ function Update-SQLIntegratedSecurityUser {
         [ValidateNotNullOrEmpty()][string] $ComputerName,
         [ValidateNotNullOrEmpty()][string] $PreviousComputerName,
         [string] $IntegratedSecurityRole,
-        [string] $SQLServerName
+        [string] $SQLServerName = "."
     )
     Write-Verbose "Updating UserName:$UserName from: $PreviousComputerName to: $ComputerName"
-    if ($ComputerName -like $PreviousComputerName) {
-        Write-Warning "ComputerName and PreviousComputerName are set to the same value, won't be able to update an existing user login."
-    }
-    if ($UserName -like "$PreviousComputerName\*") {
+    if (!($ComputerName -like $PreviousComputerName) -and ($UserName -like "$PreviousComputerName\*")) {
         Write-Warning "Username: $UserName includes previous computer name:$PreviousComputerName `n   Removing computer name from user name"
         $UserName=$UserName -Replace "$PreviousComputerName\\(?<user>.*)",'${user}'
         Write-Warning " !!  Changing the hostname and SQL Server logins will require the system to be rebooted before initial use.  !!"
@@ -697,20 +706,24 @@ function Update-SQLIntegratedSecurityUser {
         Write-Error "UserName: $UserName includes a different domain than the computer name. `n   Cmdlet will not attempt to rename domain users."
     }
     else {
-        $JustName = $UserName
-        $NewName = $UserName
-        if ($UserName -like "$ComputerName\*") {
-            $JustName = $Username -Replace "$ComputerName\\(?<user>.*)",'${user}'
-            $OldName = "$PreviousComputerName\$JustName"
+        $success=$false
+        if (!($ComputerName -like $PreviousComputerName)) {
+            $NewName = $UserName
+            if ($UserName -like "$ComputerName\*") {
+                $JustName = $Username -Replace "$ComputerName\\(?<user>.*)",'${user}'
+                $OldName = "$PreviousComputerName\$JustName"
+            }
+            else {
+                $OldName = "$PreviousComputerName\$UserName"
+                $NewName = "$ComputerName\$UserName"
+            }
+            if (!($NewName -like $OldName)) {
+                Write-Verbose "Updating UserName:$OldName to UserName:$NewName on server:$SQLServerName"
+                $success = Update-SQLUser -UserName $NewName -OldUserName $OldName -SQLServerName $SQLServerName -Verbose:$VerbosePreference    
+            }    
         }
-        else {
-            $OldName = "$PreviousComputerName\$UserName"
-            $NewName = "$ComputerName\$UserName"
-        }
-        Write-Verbose "Updating UserName:$OldName to UserName:$NewName on server:$SQLServerName"
-        $success = Update-SQLUser -UserName $NewName -OldUserName $OldName -SQLServerName $SQLServerName -Verbose:$VerbosePreference
         if (!$success) {
-            Write-Verbose "Updating failed, adding user instead."
+            Write-Verbose "Adding UserName:$UserName to server:$SQLServerName"
             $success = Add-SQLUser -UserName $UserName -SQLServerName $SQLServerName -Verbose:$VerbosePreference
         }
     }
@@ -724,11 +737,11 @@ function Install-MSSQLserverExpress {
         [string] $SQLINST="MSSQLSERVER"
     )
     # Verify that the file folder is present
-    if (! $(try { Test-Path $FilePath } Catch { $false })) {
-        New-Item -ItemType Directory -Force -Path $FilePath
+    if (! $(try { Test-Path -ErrorAction SilentlyContinue $FilePath } Catch { $false })) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $FilePath
     }    
     #
-    if (Test-Path "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL") {
+    if (Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL") {
         $sqlInstances = Get-ChildItem "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names"
         Write-Verbose "SQL Server installation found with instances:`n $($sqlInstances|ForEach-Object {$_.Property}) `n"
         # Get SQL Server PowerShell support from the PS Gallery
@@ -745,7 +758,7 @@ function Install-MSSQLserverExpress {
     $MSSEPATH = "$FilePath\SQLEXPR_x64_ENU"
     $MSSESETUP = "$MSSEPATH\setup.exe"
     # Download, unpack, and install while setting the default instance name - will probably need to periodically refreshed until choco install works 
-    if (! $(try { Test-Path $MSSEFILE } Catch { $false }) ) {
+    if (! $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
         try {
             Invoke-WebRequest -Uri $MSSQLEURL -OutFile $MSSEFILE
         }
@@ -753,12 +766,12 @@ function Install-MSSQLserverExpress {
             Write-Error "Failed to download SQL Server Express from $MSSQLEURL and store in $MSSEFILE  Check URL and permission on path.  Error: $_"
         }
     }
-    if ( $(try { Test-Path $MSSEFILE } Catch { $false }) ) {
-        if (! ($(Try { Test-Path $MSSEPATH } Catch { $false })) -or ($(Try { Test-Path $MSSESETUP } Catch { $false }))) {
+    if ( $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
+        if (! ($(Try { Test-Path -ErrorAction SilentlyContinue  $MSSEPATH } Catch { $false })) -or ($(Try { Test-Path -ErrorAction SilentlyContinue  $MSSESETUP } Catch { $false }))) {
            Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList "/q","/x:$MSSEPATH"
         }
     }
-    if ($(Try { Test-Path $MSSESETUP } Catch { $false })) {
+    if ($(Try { Test-Path -ErrorAction SilentlyContinue $MSSESETUP } Catch { $false })) {
         Start-Process $MSSEFILE -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/ACTION=install","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/UPDATEENABLED=FALSE"
     } else {
         Write-Verbose "$MSSESETUP not found after attempt to download and extract!`nSetting instance name to SQLEXPRESS and installing with chocolatey instead."
@@ -767,7 +780,7 @@ function Install-MSSQLserverExpress {
         $SQLINST = "SQLEXPRESS"
         Install-Choco "sql-server-express"
     }
-    if (!(Test-Path "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL")) {
+    if (!(Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL")) {
         throw "SQL Server failed to install, installation canceled" 
     }
     #
@@ -795,7 +808,7 @@ function Initialize-Postgresql {
         $psqlHome = "C:\Program Files\PostgreSQL\" + $psqlInstall.Name
     }
 
-    if (-not (Test-Path $psqlHome)) {
+    if (-not (Test-Path -ErrorAction SilentlyContinue $psqlHome)) {
         throw "Required Postgres path not found: $psqlHome"
     }
 
@@ -810,18 +823,44 @@ function Set-PermissionsOnPath {
     param (
         [Parameter(Mandatory=$True)]$FilePath, 
         [Parameter(Mandatory=$True)]$User, 
-        [Parameter(Mandatory=$True)]$Perms
+        [Parameter(Mandatory=$True)]$Perms,
+        $Inheritance
         )
     try 
     {
         $ACL = Get-Acl $FilePath
-        $InheritanceFlag = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
-        $PropagationFlag = [System.Security.AccessControl.PropagationFlags]"None"
-        $AccessControlType =[System.Security.AccessControl.AccessControlType]::Allow
         $Account = New-Object System.Security.Principal.NTAccount($User)
-        if ("NoAccess" -eq $Perms) {  # This is meant to Deny CRUD
-            $FileSystemRights = [System.Security.AccessControl.FileSystemRights]"Modify,ReadAndExecute"
+        $PropagationFlag = [System.Security.AccessControl.PropagationFlags]::None
+        $AccessControlType =[System.Security.AccessControl.AccessControlType]::Allow
+        # Use default inheritance if none specified
+        if ($null -eq $Inheritance) {
+            $InheritanceFlag = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+        }
+        else {
+            if ($Inheritance -like "ObjectInherit") {
+                $InheritanceFlag = [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+                # We won't propagate the inheritance of those entries that are applied to this folder only
+                $PropagationFlag = [System.Security.AccessControl.PropagationFlags]::NoPropagateInherit
+            }
+            elseif ($Inheritance -like "ContainerInherit") {
+                $InheritanceFlag = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit
+            }
+            else {
+                # Fallback: just apply this to the path given and block both inheritance and propagation
+                $InheritanceFlag = [System.Security.AccessControl.InheritanceFlags]::None
+                $PropagationFlag = [System.Security.AccessControl.PropagationFlags]::NoPropagateInherit
+            }
+        }
+        if ($Perms -like "NoAccess") {  # This is meant to Deny CRUD
+            $FileSystemRights = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [System.Security.AccessControl.FileSystemRights]::Synchronize
+            # First we have to remove inheritance while copying the existing rules in
+            $ACL.SetAccessRuleProtection($true,$true)
+            # Then, make that permanent before reloading the ACL
+            Set-Acl $FilePath $ACL
+            $ACL = Get-Acl $FilePath
+            # This is mostly unused in a remove all except for the Account: 
             $FileSystemAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($Account, $FileSystemRights, $InheritanceFlag, $PropagationFlag, $AccessControlType)
+            # Now simply remove all ACL entries for this user/group
             $ACL.RemoveAccessRuleAll($FileSystemAccessRule)
         }
         else {
@@ -830,6 +869,7 @@ function Set-PermissionsOnPath {
             $ACL.SetAccessRule($FileSystemAccessRule) # or $ACL.AddAccessRule($FileSystemAccessRule)
         }
         Set-Acl $FilePath $ACL
+        Write-Verbose "Set permissions on path: $FilePath for user: $User to: $Perms"
     }
     catch {
         Write-Error "Unable to add user: $User to path: $FilePath with permissions: $Perms`n Error: $_"
@@ -855,8 +895,8 @@ function Add-DesktopAppLinks {
         $EdFiSolFolder="$pubDesktop\Ed-Fi Solutions\$solName"
     }
     $WScriptShell = New-Object -ComObject WScript.Shell
-    if (! $(Try { Test-Path $EdFiSolFolder } Catch { $false }) ) {
-        New-Item -ItemType Directory -Force -Path $EdFiSolFolder 
+    if (! $(Try { Test-Path -ErrorAction SilentlyContinue $EdFiSolFolder } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $EdFiSolFolder 
     }
     # Add URLs to public desktop
     foreach ($appInstall in $AppURIs | Where-Object {$_.type -eq "URL"}) {
@@ -891,9 +931,9 @@ function Add-DesktopAppLinks {
         #
         Write-Verbose "Adding Solution Links to Ed-Fi Solutions website for local IIS homepage"
         $solHtmlFile="$EdFiWebDir\SolutionItems.html"
-        if (! $(Try { Test-Path $solHtmlFile } Catch { $false }) ) {
-            if (! $(Try { Test-Path $solHtmlFile } Catch { $false }) ) {
-                New-Item -ItemType Directory -Force -Path $EdFiWebDir
+        if (! $(Try { Test-Path -ErrorAction SilentlyContinue $solHtmlFile } Catch { $false }) ) {
+            if (! $(Try { Test-Path -ErrorAction SilentlyContinue  $solHtmlFile } Catch { $false }) ) {
+                $tooVerbose = New-Item -ItemType Directory -Force -Path $EdFiWebDir
             }
             Set-Content $solHtmlFile ""
         }
