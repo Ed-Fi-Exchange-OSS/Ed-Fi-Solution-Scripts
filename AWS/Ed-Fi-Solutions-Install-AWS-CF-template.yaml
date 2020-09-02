@@ -26,7 +26,6 @@ Parameters:
     AllowedValues:
       - Demo
       - Staging
-      - Sandbox
     ConstraintDescription: 'Must be either Demo, Staging, or Sandbox'
   2SelectedInstanceType:
     Description: >-
