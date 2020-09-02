@@ -14,10 +14,10 @@ The following parameters can be specified on the command line or via JSON config
 * "DnsName": DNS name chosen for this environment,  example:"demo.agency.org"
 * "AdminEmail": An administrative contact email needed when generating SSL certificates within the demo,  example:"info@agency.org"
 * "DDNSUrl": Simple API URL for dynamic DNS provider accepting DNS name and IP address to update, examples (use the actual URL in config file with backtick in front of ampersand):
-    * ["Dyn.com"]("https://members.dyndns.org/nic/update?hostname={DnsName}`&myip={IP}")
-    * ["YDNS"]("https://ydns.io/api/v1/update/?host={DnsName}`&ip={IP}")
-    * ["FreeDNS"]("https://freedns.afraid.org/nic/update?hostname={DnsName}`&myip={IP}")
-    * ["GoogleDNS"]("https://domains.google.com/nic/update?hostname={DnsName}`&myip={IP}")
+    * [Dyn.com](https://members.dyndns.org/nic/update?hostname={DnsName}`&myip={IP})
+    * [YDNS](https://ydns.io/api/v1/update/?host={DnsName}`&ip={IP})
+    * [FreeDNS](https://freedns.afraid.org/nic/update?hostname={DnsName}`&myip={IP})
+    * [GoogleDNS](https://domains.google.com/nic/update?hostname={DnsName}`&myip={IP})
 * "DDNSUsername": Username to pass in for HTTPS authentication to Dynamic DNS provider
 * "DDNSPassword": And your password for dynamic DNS
 
