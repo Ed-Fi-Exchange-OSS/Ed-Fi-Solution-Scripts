@@ -135,6 +135,7 @@
       "Dyn.com" : { "DDNSUrl": "https://members.dyndns.org/nic/update?hostname={DnsName}`&myip={IP}" },
       "YDNS" : { "DDNSUrl": "https://ydns.io/api/v1/update/?host={DnsName}`&ip={IP}" },
       "FreeDNS" : { "DDNSUrl": "https://freedns.afraid.org/nic/update?hostname={DnsName}`&myip={IP}" },
+      "GoogleDNS": { "DDNSUrl": "https://domains.google.com/nic/update?hostname={DnsName}`&myip={IP}" },
       "none" : { "DDNSUrl": ""}
     }
   },
