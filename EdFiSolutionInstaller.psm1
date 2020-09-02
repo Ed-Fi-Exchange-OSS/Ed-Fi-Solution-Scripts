@@ -984,5 +984,21 @@ function Add-DesktopAppLinks {
             New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $VirtualDirectoryName -PhysicalPath $SolutionWebDir -Force
             New-WebApplication -Name $AppName  -Site "$($iisConfig.SiteName)\$VirtualDirectoryName" -PhysicalPath $SolutionWebDir -ApplicationPool $($iisConfig.applicationPool) -Force    
         }
-
+    }
+    function Update-MSEdgeAssociations {
+        [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+        param (
+            $EdFiDir="C:\Ed-Fi"
+            )
+        $AppAssocFile="$EdFiDir\LocalAppAssociations.xml"
+        Start-Process -Wait -Verbose:$VerbosePreference Dism.exe "/Online /Export-DefaultAppAssociations:$AppAssocFile" -RedirectStandardOutput "$EdFiDir\dism-log.txt" -RedirectStandardError "$EdFiDir\dism-err.txt"
+        $AppAssociations=New-Object XML
+        $AppAssociations.Load($AppAssocFile)
+        $AppSelections = $AppAssociations.SelectNodes("/DefaultAssociations/Association[@Identifier=""http"" or @Identifier=""https"" or @Identifier="".htm"" or @Identifier="".html"" or @Identifier="".url""]")
+        foreach ($node in $AppSelections) {
+            $node.ProgID="MSEdgeHTM"
+            $node.ApplicationName="Microsoft Edge"
+        }
+        $AppAssociations.save($AppAssocFile)
+        Start-Process Dism.exe "/online /import-defaultappassociations:$AppAssocFile"
     }

@@ -1,0 +1,625 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Instantiates a demo or testing instance of an Ed-Fi Operational Data Store
+  (ODS) and API web server along with assets and prerequisites of a chosen
+  solution package from the Ed-Fi Community.
+Parameters:
+  0SolutionName:
+    Description: >-
+      Select a particular solution by name to install, or select All to install
+      all solutions available. Default: None to install only the base Suite 3
+      ODS/API
+    Type: String
+    Default: None
+    AllowedValues:
+      - All
+      - ChronicAbsenteeism
+      - ParentPortal
+      - None
+    ConstraintDescription: Must be name of an available solution
+  1InstallType:
+    Description: >-
+      Select whether to include demonstration data automatically or prepare a
+      production-like staging environment.
+    Type: String
+    Default: Demo
+    AllowedValues:
+      - Demo
+      - Staging
+      - Sandbox
+    ConstraintDescription: 'Must be either Demo, Staging, or Sandbox'
+  2SelectedInstanceType:
+    Description: >-
+      Sizing (instance type) of the single EC2 Windows VM we will create, for
+      example: a Demo/Development VM = t3.medium or t3.large. Or for a
+      Testing/Staging VM = m4.large
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      - m5ad.large
+      - m5ad.xlarge
+      - m5a.large
+      - m5a.xlarge
+      - m5d.large
+      - m5d.xlarge
+      - m5.large
+      - m5.xlarge
+    ConstraintDescription: Must be a valid EC2 instance type.
+  3KeyName:
+    Description: >-
+      Key Pair Name - You must create an EC2 Key Pair before launching this
+      template. You will need the private key (*.pem file) downloaded to obtain
+      the administrator password if you need to remotely log in to your EC2
+      instance (Windows VM).
+    Type: 'AWS::EC2::KeyPair::KeyName'
+  4DnsName:
+    Description: DNS hostname to use for this server (if one exists)
+    Type: String
+    Default: ''
+    AllowedPattern: ^$|(.*)\.(.*)
+    ConstraintDescription: 'Must be a valid DNS hostname: e.g. demo.ed-fi.org'
+  5AdminEmail:
+    Description: Email address of administrative contact
+    Type: String
+    AllowedPattern: (.*)@(.*)
+    ConstraintDescription: 'Must be a valid email address: e.g. techsupport@ed-fi.org'
+  6RemoteNetwork:
+    Description: >-
+      Enter the IPv4 address subnet (CIDR) which will be used to limit
+      connectivity to the VPC through both SecurityGroup and Network ACL rules.
+      For example: 65.36.34.0/24 is a subnet and 66.68.96.191/32 is a single
+      host
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 255.255.255.255/32
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  7DDNSService:
+    Description: >-
+      If you are using dynamic DNS to update the IP address for your hostname,
+      please select the service provider
+    Type: String
+    Default: none
+    AllowedValues:
+      - Dyn.com
+      - YDNS
+      - FreeDNS
+      - none
+    ConstraintDescription: Must be a provider in this list
+  8DDNSUsername:
+    Description: >-
+      If you are using dynamic DNS to update the IP address for your hostname,
+      please enter your Username for the service
+    Type: String
+    Default: ''
+  9DDNSPassword:
+    Description: >-
+      If you are using dynamic DNS to update the IP address for your hostname,
+      please enter your Password for the  service
+    Type: String
+    Default: ''
+    NoEcho: 'true'
+Conditions:
+  AllSolutions: !Equals 
+    - !Ref 0SolutionName
+    - All
+  NoSolutions: !Equals 
+    - !Ref 0SolutionName
+    - None
+  DDNSCheck: !And 
+    - !Not 
+      - !Equals 
+        - !Ref 8DDNSUsername
+        - ''
+    - !Not 
+      - !Equals 
+        - !Ref 9DDNSPassword
+        - ''
+  DnsNameCheck: !Not 
+    - !Equals 
+      - !Ref 4DnsName
+      - ''
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMILookupS3Bucket: winami1.lambda.edfi.org
+      AWSLogsAcct: '127311923021'
+      AMI: ami-032c2c4b952586f02
+    us-east-2:
+      AMILookupS3Bucket: winami2.lambda.edfi.org
+      AWSLogsAcct: 033677994240
+      AMI: ami-0239d3998515e9ed1
+    us-west-1:
+      AMILookupS3Bucket: winami3.lambda.edfi.org
+      AWSLogsAcct: 027434742980
+      AMI: ami-08bcc13ad2c143073
+    us-west-2:
+      AMILookupS3Bucket: winami4.lambda.edfi.org
+      AWSLogsAcct: '797873946194'
+      AMI: ami-029e27fb2fc8ce9d8
+  DynamicDNS:
+    Dyn.com:
+      DDNSUrl: 'https://members.dyndns.org/nic/update?hostname={DnsName}`&myip={IP}'
+    YDNS:
+      DDNSUrl: 'https://ydns.io/api/v1/update/?host={DnsName}`&ip={IP}'
+    FreeDNS:
+      DDNSUrl: 'https://freedns.afraid.org/nic/update?hostname={DnsName}`&myip={IP}'
+    none:
+      DDNSUrl: ''
+Resources:
+  EdFiDevVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsHostnames: 'true'
+      EnableDnsSupport: 'true'
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-VPC'
+  EdFiDevInternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-InetGw'
+  VPCGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref EdFiDevVPC
+      InternetGatewayId: !Ref EdFiDevInternetGateway
+  PublicOutRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref EdFiDevVPC
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-PubOutRouteTable'
+  PublicOutRouteToInternet:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicOutRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref EdFiDevInternetGateway
+    DependsOn: VPCGatewayAttachment
+  PrivateOnlyRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref EdFiDevVPC
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-PrivRouteTable'
+  ODSAPINetworkAcl:
+    Type: 'AWS::EC2::NetworkAcl'
+    Properties:
+      VpcId: !Ref EdFiDevVPC
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-APINetAcl'
+  ODSAPIHTTPIn:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '1000'
+      Protocol: '6'
+      PortRange:
+        From: '80'
+        To: '80'
+      RuleAction: allow
+      Egress: 'false'
+      CidrBlock: 0.0.0.0/0
+  ODSAPIHTTPOut:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '1010'
+      Protocol: '6'
+      PortRange:
+        From: '80'
+        To: '80'
+      RuleAction: allow
+      Egress: 'true'
+      CidrBlock: 0.0.0.0/0
+  ODSAPIHTTPSIn:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '1020'
+      Protocol: '6'
+      PortRange:
+        From: '443'
+        To: '443'
+      RuleAction: allow
+      Egress: 'false'
+      CidrBlock: 0.0.0.0/0
+  ODSAPIHTTPSOut:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '1030'
+      Protocol: '6'
+      PortRange:
+        From: '443'
+        To: '443'
+      RuleAction: allow
+      Egress: 'true'
+      CidrBlock: 0.0.0.0/0
+  EphemeralIn:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '1040'
+      Protocol: '6'
+      PortRange:
+        From: '20000'
+        To: '65535'
+      RuleAction: allow
+      Egress: 'false'
+      CidrBlock: 0.0.0.0/0
+  EphemeralTcpOut:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '1050'
+      Protocol: '6'
+      PortRange:
+        From: '10000'
+        To: '65535'
+      RuleAction: allow
+      Egress: 'true'
+      CidrBlock: 0.0.0.0/0
+  EphemeralUdpOut:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '1060'
+      Protocol: '17'
+      PortRange:
+        From: '10000'
+        To: '65535'
+      RuleAction: allow
+      Egress: 'true'
+      CidrBlock: 0.0.0.0/0
+  RemoteAccessTCPRDPIn:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '2000'
+      Protocol: '6'
+      PortRange:
+        From: '3389'
+        To: '3389'
+      RuleAction: deny
+      Egress: 'false'
+      CidrBlock: !Ref 6RemoteNetwork
+  RemoteAccessUDPRDPIn:
+    Type: 'AWS::EC2::NetworkAclEntry'
+    Properties:
+      NetworkAclId: !Ref ODSAPINetworkAcl
+      RuleNumber: '2010'
+      Protocol: '17'
+      PortRange:
+        From: '3389'
+        To: '3389'
+      RuleAction: deny
+      Egress: 'false'
+      CidrBlock: !Ref 6RemoteNetwork
+  SubnetODSAPI:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - '0'
+        - !GetAZs ''
+      CidrBlock: 10.10.100.0/24
+      VpcId: !Ref EdFiDevVPC
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-Subnet'
+  SubnetODSAPIRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref SubnetODSAPI
+      RouteTableId: !Ref PublicOutRouteTable
+  SubnetODSAPINetworkAclAssociation:
+    Type: 'AWS::EC2::SubnetNetworkAclAssociation'
+    Properties:
+      SubnetId: !Ref SubnetODSAPI
+      NetworkAclId: !Ref ODSAPINetworkAcl
+  EdFiODSAPISecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: >-
+        Enables HTTP/HTTPS to everyone, and Remote Desktop access if
+        RemoteNetwork given (Only on Ingress route, ACL will still block)
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '3389'
+          ToPort: '3389'
+          CidrIp: !Ref 6RemoteNetwork
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: '-1'
+          ToPort: '-1'
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref EdFiDevVPC
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-SecGroup'
+  ServerAssumptionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - rds.amazonaws.com
+                - s3.amazonaws.com
+                - vpc-flow-logs.amazonaws.com
+                - config.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource: '*'
+  ODSAPILogBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !GetAtt 
+        - SubnetODSAPI
+        - VpcId
+  LogBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref ODSAPILogBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AWSCloudTrailAclCheck20150319
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 's3:GetBucketAcl'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !GetAtt 
+                  - SubnetODSAPI
+                  - VpcId
+          - Sid: AWSCloudTrailWrite20150319
+            Effect: Allow
+            Principal:
+              AWS: !FindInMap 
+                - RegionMap
+                - !Ref 'AWS::Region'
+                - AWSLogsAcct
+            Action: 's3:PutObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !GetAtt 
+                  - SubnetODSAPI
+                  - VpcId
+                - /elblog/AWSLogs/
+                - !Ref 'AWS::AccountId'
+                - /*
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+  ServerAssumptionProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ServerAssumptionRole
+  ODSAPIFixedIPAddress:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-IPAddr'
+  ODSAPINetIface:
+    Type: 'AWS::EC2::NetworkInterface'
+    Properties:
+      SubnetId: !Ref SubnetODSAPI
+      Description: Interface for all traffic to ODSAPI
+      GroupSet:
+        - !Ref EdFiODSAPISecurityGroup
+      SourceDestCheck: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-NetIface'
+  AssociateODSAPIAddress:
+    Type: 'AWS::EC2::EIPAssociation'
+    Properties:
+      AllocationId: !GetAtt 
+        - ODSAPIFixedIPAddress
+        - AllocationId
+      NetworkInterfaceId: !Ref ODSAPINetIface
+  ODSAPIServer:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - AMI
+      InstanceType: !Ref 2SelectedInstanceType
+      IamInstanceProfile: !Ref ServerAssumptionProfile
+      KeyName: !Ref 3KeyName
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: '100'
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref ODSAPINetIface
+          DeviceIndex: '0'
+      UserData: !Base64 
+        'Fn::Join':
+          - ''
+          - - |
+              <powershell>
+            - >-
+              function Install-ChocoGitPkg { Set-ExecutionPolicy Bypass -Scope
+              Process -Force;[System.Net.ServicePointManager]::SecurityProtocol
+              = [System.Net.ServicePointManager]::SecurityProtocol -bor
+              3072;Invoke-Expression ((New-Object
+              System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'));
+            - '    $ChocoCmd=Get-Command "choco.exe" -ErrorAction SilentlyContinue; $ChocolateyInstall = Convert-Path "$($ChocoCmd.Path)\..\.."; Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"; refreshenv;'
+            - |2
+                  Start-Process -Wait -NoNewWindow -FilePath $ChocoCmd.Source -ArgumentList "upgrade git","-y","--no-progress"; Update-SessionEnvironment;}
+            - >-
+              $EdFiDir="C:\Ed-Fi";$ScriptDir="$EdFiDir\scripts";$repoURL="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts";New-Item
+              -ItemType directory -Path $EdFiDir -ErrorAction
+              SilentlyContinue;Set-Location $EdFiDir;Start-Transcript -Path
+              "$EdFiDir\install.log";
+            - >
+              Install-ChocoGitPkg;$gitCmd=(Get-Command
+              "git.exe").Source;Start-Process -Wait -NoNewWindow -FilePath
+              $gitCmd -ArgumentList "clone $repoURL $ScriptDir";Set-Location
+              $ScriptDir;Stop-Transcript;
+            - .\install_solution.ps1 -Verbose
+            - !If 
+              - DnsNameCheck
+              - !Join 
+                - ''
+                - - ' -DnsName "'
+                  - !Ref 4DnsName
+                  - '"'
+              - ''
+            - ' -AdminEmail "'
+            - !Ref 5AdminEmail
+            - '"'
+            - !If 
+              - DDNSCheck
+              - !Join 
+                - ''
+                - - ' -DDNSUsername "'
+                  - !Ref 8DDNSUsername
+                  - '" -DDNSPassword "'
+                  - !Ref 9DDNSPassword
+                  - '" -DDNSUrl "'
+                  - !FindInMap 
+                    - DynamicDNS
+                    - !Ref 7DDNSService
+                    - DDNSUrl
+                  - '"'
+              - ''
+            - !If 
+              - AllSolutions
+              - ''
+              - !If 
+                - NoSolutions
+                - ' -SolutionName "base" '
+                - !Join 
+                  - ''
+                  - - ' -SolutionName "'
+                    - !Ref 0SolutionName
+                    - '"'
+            - !Join 
+              - ''
+              - - ' -InstallType "'
+                - !Ref 1InstallType
+                - '"'
+            - |+
+
+            - |
+              </powershell>
+      Tags:
+        - Key: VpcId
+          Value: EdFiDevVPC
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-VM'
+    DependsOn:
+      - VPCGatewayAttachment
+      - ODSAPIFixedIPAddress
+      - ODSAPINetIface
+Outputs:
+  1EdFiSolutionHome:
+    Description: Ed-Fi Solutions Landing Page
+    Value: !Join 
+      - ''
+      - - 'https://'
+        - !If 
+          - DnsNameCheck
+          - !Ref 4DnsName
+          - !GetAtt 
+            - ODSAPIServer
+            - PublicDnsName
+        - /EdFi
+  2ServerDNSName:
+    Description: ODS/API Public DNS Name
+    Value: !GetAtt 
+      - ODSAPIServer
+      - PublicDnsName
+  3APISrvIP:
+    Description: ODS/API Server Public IP
+    Value: !Ref ODSAPIFixedIPAddress
+  4ODSAPIServerInstance:
+    Description: ODS/API Server Instance on EC2
+    Value: !Ref ODSAPIServer

@@ -92,11 +92,12 @@ Write-Verbose "iisConfig: $(Convert-HashtableToString $iisConfig)`n-------------
 # Save the old hostname for fixing install stuff. Then set the hostname right
 $oldComputerName="$Env:ComputerName"
 if (!($oldComputerName -like $NewComputerName)) {
-    Rename-Computer -NewName "$NewComputerName" -Force
+#    Rename-Computer -NewName "$NewComputerName" -Force
     $netdomCmd = (Get-Command "netdom.exe" -ErrorAction SilentlyContinue).Source
-    & $netdomCmd computername "$NewComputerName" /add:"$DnsName"
-    Write-Verbose "Renamed Computer to $NewComputerName"
-#    $NewComputerName=$oldComputerName
+#    & $netdomCmd computername "$NewComputerName" /add:"$DnsName"
+    & $netdomCmd computername "$OldComputerName" /add:"$DnsName"
+    Write-Verbose "Skipped Rename of Computer to $NewComputerName"
+    $NewComputerName=$oldComputerName
 }
 #
 # Enable Windows features - Must haves
@@ -147,6 +148,9 @@ if (!([string]::IsNullOrEmpty($cfg.selectedChocoPackages))) {
 if (!([string]::IsNullOrEmpty($cfg.optionalChocoPackages))) { 
     Install-Choco $cfg.optionalChocoPackages -Verbose:$VerbosePreference
     Write-Verbose "Installed packages: $($cfg.optionalChocoPackages)"
+    if ([string]$cfg.optionalChocoPackages -like '*microsoft-edge*') {
+        Update-MSEdgeAssociations -Verbose:$VerbosePreference
+    }
 }
 #
 # Check and install SQL server if needed
