@@ -19,7 +19,7 @@ function Install-ChocoGitPkg {
     Update-SessionEnvironment
 }
 $EdFiDir="C:\Ed-Fi"
-$ScriptDir="$EdFiDir\scripts"
+$ScriptDir="$EdFiDir\install"
 $repoURL="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts"
 New-Item -ItemType directory -Path $EdFiDir -ErrorAction SilentlyContinue
 Set-Location $EdFiDir
