@@ -290,14 +290,15 @@ function Update-DynDNS {
     try {
         "Updating DDNS for {0} with IP {1}" -f $HostDNS, $IP | Write-Verbose
         $ProviderUrl = $ProviderUrl -replace "{DnsName}",$HostDNS -replace "{IP}",$IP
+        Write-Verbose " Calling: Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent `"EdFiAlliance SolutionBuilder`" "
         $Result = Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent "EdFiAlliance SolutionBuilder" -Verbose:$VerbosePreference
-        Write-Verbose "DDNS updated"
+        Write-Verbose "DDNS update result: $Result"
     }
     catch {
         Write-Error "Failed to update Dynamic DNS entry.  Error: $_ "
         return $false 
     }
-    return $Result
+    return $true
 }
 # Ensure all prerequisites are installed.
 # Region: Self Signed Certificate Functions
@@ -440,7 +441,7 @@ function Enable-WebServerSSL {
     # Configure IIS to use Lets Encrypt SSL Cert or Self-Signed, if needed
     #
     # Get self-signed certificate for localhost needs
-    $selfSignedCert = Get-SelfSignedCertificate -DnsName $HostDNS -CertName "localhost Self-Signed" -FilePath $InstallPath
+    $selfSignedCert = Get-SelfSignedCertificate -DnsName $HostDNS -CertName "localhost Self-Signed" -FilePath $InstallPath -Verbose:$VerbosePreference
     $newCert=$null
     $certStoreLocation = "Cert:\LocalMachine\WebHosting"
     # In case you passed in some variant of localhost somehow, don't go tryin to create a cert for that, not even a little bit.
@@ -488,7 +489,7 @@ function Enable-WebServerSSL {
             Write-Verbose "Found binding for host:$HostDNS on site:$SiteName"
         }
         # Obtain a free Let's Encrypt cert for given hostname
-        $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail
+        $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail -Verbose:$VerbosePreference
         # Attach the cert to port 443 on the given siteName # In case of a null cert from silent fail, we'll try to bind anyway with Self-Signed
         if ($null -ne $newCert) { 
             try {
@@ -757,9 +758,11 @@ function Install-MSSQLserverExpress {
     $MSSEFILE = "$FilePath\SQLEXPR_x64_ENU.exe"
     $MSSEPATH = "$FilePath\SQLEXPR_x64_ENU"
     $MSSESETUP = "$MSSEPATH\setup.exe"
+    $INIFILE = "$FilePath\SQLExprConfig.ini"
     # Download, unpack, and install while setting the default instance name - will probably need to periodically refreshed until choco install works 
     if (! $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
         try {
+            Write-Verbose "Downloading $MSSQLEURL to $MSSEFILE"
             Invoke-WebRequest -Uri $MSSQLEURL -OutFile $MSSEFILE
         }
         catch {
@@ -768,11 +771,13 @@ function Install-MSSQLserverExpress {
     }
     if ( $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
         if (! ($(Try { Test-Path -ErrorAction SilentlyContinue  $MSSEPATH } Catch { $false })) -or ($(Try { Test-Path -ErrorAction SilentlyContinue  $MSSESETUP } Catch { $false }))) {
-           Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList "/q","/x:$MSSEPATH"
+            Write-Verbose "  Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList `"/q`",`"/x:$MSSEPATH`" "
+            Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList "/q","/x:$MSSEPATH"
         }
     }
     if ($(Try { Test-Path -ErrorAction SilentlyContinue $MSSESETUP } Catch { $false })) {
-        Start-Process $MSSEFILE -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/ACTION=install","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/UPDATEENABLED=FALSE"
+        Write-Verbose "  Start-Process $MSSESETUP -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList `"/IACCEPTSQLSERVERLICENSETERMS`",`"/Q`",`"/INSTANCEID=$SQLINST`",`"/INSTANCENAME=$SQLINST`",`"/ConfigurationFile=$INIFILE`"  "
+        Start-Process $MSSESETUP -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/ConfigurationFile=$INIFILE"
     } else {
         Write-Verbose "$MSSESETUP not found after attempt to download and extract!`nSetting instance name to SQLEXPRESS and installing with chocolatey instead."
         # If SQL Express manual install failed, try Chocolatey
@@ -791,7 +796,6 @@ function Install-MSSQLserverExpress {
     # Use freshly installed MS SQL Server
     Enable-TCPonSQLInstance -SQLINST $SQLINST
     return $SQLINST
-        #
 }
 function Initialize-Postgresql {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
@@ -981,8 +985,8 @@ function Add-DesktopAppLinks {
         Get-Content -Path $solutionsHtml | Add-Content -Path $indexHtml
         Get-Content -Path $footerHtml | Add-Content -Path $indexHtml
         if ($null -eq (Get-WebApplication -Name $AppName)) {
-            New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $VirtualDirectoryName -PhysicalPath $SolutionWebDir -Force
-            New-WebApplication -Name $AppName  -Site "$($iisConfig.SiteName)\$VirtualDirectoryName" -PhysicalPath $SolutionWebDir -ApplicationPool $($iisConfig.applicationPool) -Force    
+            $tooVerbose=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $VirtualDirectoryName -PhysicalPath $SolutionWebDir -Force
+            $tooVerbose=New-WebApplication -Name $AppName  -Site "$($iisConfig.SiteName)\$VirtualDirectoryName" -PhysicalPath $SolutionWebDir -ApplicationPool $($iisConfig.applicationPool) -Force    
         }
     }
     function Update-MSEdgeAssociations {

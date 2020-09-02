@@ -175,8 +175,8 @@ Function Install-BaseEdFi {
     if (!(Get-Command "Add-DesktopAppLinks" -ErrorAction SilentlyContinue)) {
         Import-Module .\EdFiBinaryInstaller.psm1
     }
-    Add-DesktopAppLinks $appURLTable
-    Add-WebAppLinks -AppURIs $appURLTable -DnsName $DnsName -SolutionName "Ed-Fi Tools for ODS/API v$SuiteVersion" # -EdFiWebDir $SolutionWebRoot
+    Add-DesktopAppLinks $appURLTable -Verbose:$VerbosePreference
+    Add-WebAppLinks -AppURIs $appURLTable -DnsName $DnsName -SolutionName "Ed-Fi Tools for ODS/API v$SuiteVersion" -Verbose:$VerbosePreference # -EdFiWebDir $SolutionWebRoot
 
 }
 # Region: Web.Config Functions

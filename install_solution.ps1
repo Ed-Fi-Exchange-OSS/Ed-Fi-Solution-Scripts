@@ -1,7 +1,7 @@
 [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
 param(
-    [string] $config = "$PSScriptRoot\EdFiBaseConfig.json",
-    [string] $solutions = "$PSScriptRoot\EdFiSolutionsConfig.json",
+    [string] $config = "$PSScriptRoot\config\EdFiBaseConfig.json",
+    [string] $solutions = "$PSScriptRoot\config\EdFiSolutionsConfig.json",
     [string] $DnsName,
     [string] $AdminEmail,
     [string] $DDNSUrl,
@@ -17,8 +17,8 @@ Write-Verbose "Error action preference: $ErrorActionPreference"
 #
 # Some of these modules functions may need to be embedded directly until we can fetch the additional files from git
 #
-Import-Module "$PSScriptRoot\EdFiSolutionInstaller"
-Import-Module "$PSScriptRoot\EdFiBinaryInstaller"
+Import-Module "$PSScriptRoot\modules\EdFiSolutionInstaller"
+Import-Module "$PSScriptRoot\modules\EdFiBinaryInstaller"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 #
 $cfg = Get-Content $config | ConvertFrom-Json
@@ -33,10 +33,12 @@ $SolutionWebRoot = Get-ConfigParam $null $cfg.SolutionWebRoot "$EdFiDir\www"
 if (! $(Try { Test-Path $downloadPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
     $tooVerbose = New-Item -ItemType Directory -Force -Path $downloadPath
 }
+# move installation ini files to downloads dir
+Move-Item -Path "$PSScriptRoot\config\*.ini" -Destination $downloadPath -Force
+#
 if (! $(Try { Test-Path "$SolutionWebRoot\*.html" -ErrorAction SilentlyContinue } Catch { $false }) ) {
     # Relocate downloaded www directory only if no html files are present locally
     if ($(Try { Test-Path "$PSScriptRoot\www" -ErrorAction SilentlyContinue } Catch { $false })) {
-        Move-Item -Path "$PSScriptRoot\www" -Destination $SolutionWebRoot -Force
     }
 }
 Set-Location $EdFiDir
@@ -85,8 +87,8 @@ $iisConfig=@{
 }
 #
 # Install type is typically Staging for Populated Template ODS or Prodution for Minimal Template
-$InstallType = Get-ConfigParam $null $cfg.InstallType "Demo"
-Write-Verbose "`n----------------`nConfiguration params:`nEd-Fi Dir:`"$EdFiDir`"`ndownloadPath:`"$downloadPath`"`nSolutionWebRoot:`"$SolutionWebRoot`"`nDnsName:`"$DnsName`"`newComputerName:`"$NewComputerName`"`nAdminEmail:`"$AdminEmail`"`nDDNSUrl:`"$DDNSUrl`"`nDDNSUsername:`"$DDNSUsername`"`nDDNSPassword:`"$DDNSPassword`"`nSolutionsAppName:`"$SolutionsAppName`"`nGitPrefix:`"$GitPrefix`"`nSQLINST:`"$SQLINST`"`nInstallType:`"$InstallType`""
+$InstallType = Get-ConfigParam $InstallType $cfg.InstallType "Demo"
+Write-Verbose "`n----------------`nConfiguration params:`nEd-Fi Dir:`"$EdFiDir`"`ndownloadPath:`"$downloadPath`"`nSolutionWebRoot:`"$SolutionWebRoot`"`nDnsName:`"$DnsName`"`nNewComputerName:`"$NewComputerName`"`nAdminEmail:`"$AdminEmail`"`nDDNSUrl:`"$DDNSUrl`"`nDDNSUsername:`"$DDNSUsername`"`nDDNSPassword:`"$DDNSPassword`"`nSolutionsAppName:`"$SolutionsAppName`"`nGitPrefix:`"$GitPrefix`"`nSQLINST:`"$SQLINST`"`nInstallType:`"$InstallType`""
 Write-Verbose "iisConfig: $(Convert-HashtableToString $iisConfig)`n----------------`n"
 #
 # Save the old hostname for fixing install stuff. Then set the hostname right
@@ -121,9 +123,11 @@ if (![string]::IsNullOrEmpty($DnsName) -and ("edfisolsrv" -ne $DnsName)) {
     Add-NameToHostsFile $DnsName
     # Now update Dynamic DNS if credentials supplied   
     if ($null -ne $dynCredentials -and ![string]::IsNullOrEmpty($DDNSUrl)) {
-        Update-DynDNS -HostDNS $DnsName -IP $hostIP -ProviderUrl $DDNSUrl -Credentials $dynCredentials -Verbose:$VerbosePreference
-        Start-Sleep -Seconds 2
-        Write-Verbose "Dyn DNS name: $DnsName set to IP: $hostIP"
+        if (Update-DynDNS -HostDNS $DnsName -IP $hostIP -ProviderUrl $DDNSUrl -Credentials $dynCredentials -Verbose:$VerbosePreference) {
+            Start-Sleep -Seconds 2
+            Write-Verbose "Dyn DNS name: $DnsName set to IP: $hostIP"    
+        }
+        else { Write-Verbose "Dynamic DNS update failed.`n  You will need to update DNS manually and manually generate SSL certificates.`n  See cmdlet: "}
     }
 }
 else {
@@ -237,7 +241,7 @@ foreach ($sol in $solutionsInstall) {
             $link.URI = "$EdFiDir\$($sol.installSubPath)\$($link.URI)"
         }
         elseif (($link.type -eq "URL") -and !($link.URI -like "http*")) {
-            if ($link.URL -like "/*") {
+            if ($link.URI -like "/*") {
                 $link.URI = $link.URI -Replace "^","https://$DnsName"
             }
             else {
@@ -260,23 +264,6 @@ Write-Verbose "Preparing for Windows Update"
 Stop-Transcript
 Install-Module PSWindowsUpdate -Force
 Add-WUServiceManager -MicrosoftUpdate -confirm:$false
-$announcement = @"
-***************************************************************
-*                                                             *
-*  Complete: Ed-Fi Solution Installation                      *
-*  Begin: Windows Update                                      *
-*           to install security fixes/updates                 *
-*                                                             *
-* See Solution installation packages while you wait:          *
-*                                                             *
-*   https://$DnsName/EdFi                                     *
-*                                                             *
-*  !!! You can press CTRL-C to stop the update process  !!!   *
-*  !!!  if you prefer to update later.                  !!!   *
-*                                                             *
-***************************************************************
-"@
-Write-Host $announcement
 Write-Verbose "Performing Windows Update"
 #
 # Now force a full update
