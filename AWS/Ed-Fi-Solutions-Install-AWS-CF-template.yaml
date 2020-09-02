@@ -89,6 +89,7 @@ Parameters:
       - Dyn.com
       - YDNS
       - FreeDNS
+      - GoogleDNS
       - none
     ConstraintDescription: Must be a provider in this list
   8DDNSUsername:
