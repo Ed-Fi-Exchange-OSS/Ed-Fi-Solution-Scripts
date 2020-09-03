@@ -526,7 +526,7 @@
             "    Start-Process -Wait -NoNewWindow -FilePath $ChocoCmd.Source -ArgumentList \"upgrade git\",\"-y\",\"--no-progress\"; Update-SessionEnvironment;}\n",
             "$EdFiDir=\"C:\\Ed-Fi\";$ScriptDir=\"$EdFiDir\\install\";$repoURL=\"https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts\";New-Item -ItemType directory -Path $EdFiDir -ErrorAction SilentlyContinue;Set-Location $EdFiDir;Start-Transcript -Path \"$EdFiDir\\install.log\";",
             "Install-ChocoGitPkg;$gitCmd=(Get-Command \"git.exe\").Source;Start-Process -Wait -NoNewWindow -FilePath $gitCmd -ArgumentList \"clone $repoURL $ScriptDir\";Set-Location $ScriptDir;Stop-Transcript;\n",
-            ".\\install_solution.ps1 -Verbose",
+            ".\\install_solution.ps1 -Verbose -noui",
             { "Fn::If": ["DnsNameCheck", 
               { "Fn::Join": ["", [ " -DnsName \"", { "Ref" : "4DnsName" }, "\"" ]] },
             "" ] },

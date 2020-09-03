@@ -767,6 +767,7 @@ function Install-MSSQLserverExpress {
     if (! $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
         try {
             Write-Verbose "Downloading $MSSQLEURL to $MSSEFILE"
+            Write-Progress -Activity "Downloading SQL Server Express" -Status "1% Complete:" -PercentComplete 1;
             Invoke-WebRequest -Uri $MSSQLEURL -OutFile $MSSEFILE
         }
         catch {
@@ -776,11 +777,13 @@ function Install-MSSQLserverExpress {
     if ( $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false } ) ) {
         if (! $(Try { Test-Path -ErrorAction SilentlyContinue  $MSSESETUP } Catch { $false } ) ) {
             Write-Verbose "  Start-Process $MSSEFILE -wait -ArgumentList `"/q`",`"/x:$MSSEPATH`" -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt"
+            Write-Progress -Activity "Decompressing SQL Server Express install package" -Status "30% Complete:" -PercentComplete 30;
             Start-Process $MSSEFILE -wait -ArgumentList "/q","/x:$MSSEPATH" -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt
         }
     }
     if ($(Try { Test-Path -ErrorAction SilentlyContinue $MSSESETUP } Catch { $false })) {
         Write-Verbose " Start-Process $MSSESETUP -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList `"/IACCEPTSQLSERVERLICENSETERMS`",`"/Q`",`"/INSTANCEID=$SQLINST`",`"/INSTANCENAME=$SQLINST`",`"/ConfigurationFile=$InstINI`""
+        Write-Progress -Activity "Installing SQL Server Express" -Status "60% Complete:" -PercentComplete 60;
         Start-Process $MSSESETUP -wait -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/ConfigurationFile=$InstINI" -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt
     }
     else {
@@ -794,11 +797,14 @@ function Install-MSSQLserverExpress {
         throw "SQL Server failed to install, installation canceled" 
     }
     #
+    Write-Progress -Activity "SQL Server Express installed" -Status "80% Complete:" -PercentComplete 80;
     Update-SessionEnvironment
     #
+    Write-Progress -Activity "Installing PowerShell modules for SQL Server" -Status "85% Complete:" -PercentComplete 85;
     Install-SqlServerModule
     #
     # Use freshly installed MS SQL Server
+    Write-Progress -Activity "Enabling TCP on default SQL Server instance" -Status "95% Complete:" -PercentComplete 95;
     Enable-TCPonSQLInstance -SQLINST $SQLINST
     return $SQLINST
 }

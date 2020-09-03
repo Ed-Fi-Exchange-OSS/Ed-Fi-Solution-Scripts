@@ -1,6 +1,7 @@
 {
     "solutions": [
         {   "name": "ChronicAbsenteeism",
+            "description": "Chronic Absenteeism",
             "chocoPackages": "tableau-desktop",
             "repo": "github.com/Ed-Fi-Alliance/Ed-Fi-X-ChicoUSDTableauReports",
             "installSubPath": "Chron-Abs",
@@ -16,6 +17,7 @@
             ]
         },
         {   "name": "ParentPortal",
+            "description": "Parent Portal",
             "chocoPackages": "nodejs",
             "repo": "github.com/Ed-Fi-Alliance/Ed-Fi-X-ParentPortal",
             "installSubPath": "ParentPortal",
@@ -28,6 +30,7 @@
             ]
         },
         {   "name": "base",
+            "description": "Base Ed-Fi Suite 3",
             "chocoPackages": "",
             "repo": "",
             "archive": "",

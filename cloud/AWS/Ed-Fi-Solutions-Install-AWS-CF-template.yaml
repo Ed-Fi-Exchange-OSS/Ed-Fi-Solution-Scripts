@@ -542,7 +542,7 @@ Resources:
               "git.exe").Source;Start-Process -Wait -NoNewWindow -FilePath
               $gitCmd -ArgumentList "clone $repoURL $ScriptDir";Set-Location
               $ScriptDir;Stop-Transcript;
-            - .\install_solution.ps1 -Verbose
+            - .\install_solution.ps1 -Verbose -noui
             - !If 
               - DnsNameCheck
               - !Join 
