@@ -39,6 +39,7 @@ Move-Item -Path "$PSScriptRoot\config\*.ini" -Destination $downloadPath -Force
 if (! $(Try { Test-Path "$SolutionWebRoot\*.html" -ErrorAction SilentlyContinue } Catch { $false }) ) {
     # Relocate downloaded www directory only if no html files are present locally
     if ($(Try { Test-Path "$PSScriptRoot\www" -ErrorAction SilentlyContinue } Catch { $false })) {
+        Move-Item -Path "$PSScriptRoot\www" -Destination $SolutionWebRoot -Force
     }
 }
 Set-Location $EdFiDir
@@ -123,11 +124,14 @@ if (![string]::IsNullOrEmpty($DnsName) -and ("edfisolsrv" -ne $DnsName)) {
     Add-NameToHostsFile $DnsName
     # Now update Dynamic DNS if credentials supplied   
     if ($null -ne $dynCredentials -and ![string]::IsNullOrEmpty($DDNSUrl)) {
-        if (Update-DynDNS -HostDNS $DnsName -IP $hostIP -ProviderUrl $DDNSUrl -Credentials $dynCredentials -Verbose:$VerbosePreference) {
+        $updateDDNS=Update-DynDNS -HostDNS $DnsName -IP $hostIP -ProviderUrl $DDNSUrl -Credentials $dynCredentials -Verbose:$VerbosePreference
+        if ($updateDDNS) {
             Start-Sleep -Seconds 2
             Write-Verbose "Dyn DNS name: $DnsName set to IP: $hostIP"    
         }
-        else { Write-Verbose "Dynamic DNS update failed.`n  You will need to update DNS manually and manually generate SSL certificates.`n  See cmdlet: "}
+        else {
+            Write-Verbose "Dynamic DNS update failed.`n  You will need to update DNS manually and manually generate SSL certificates.`n "
+        }
     }
 }
 else {
@@ -183,6 +187,7 @@ if ($InstallType -like "Demo") {
         Update-SQLIntegratedSecurityUser -UserName $usr -ComputerName $NewComputerName -PreviousComputerName $oldComputerName -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
     }
 }
+Read-Host "Stop now and save!"
 #
 # Get the list of Solutions from the config file
 $solutionsInstall = $solcfg.solutions | Where-Object {[string]::IsNullOrEmpty($SolutionName) -or $_.name -match $SolutionName}

@@ -288,7 +288,6 @@ function Update-DynDNS {
         $IP=Get-ExternalIP
     }
     try {
-        "Updating DDNS for {0} with IP {1}" -f $HostDNS, $IP | Write-Verbose
         $ProviderUrl = $ProviderUrl -replace "{DnsName}",$HostDNS -replace "{IP}",$IP
         Write-Verbose " Calling: Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent `"EdFiAlliance SolutionBuilder`" "
         $Result = Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent "EdFiAlliance SolutionBuilder" -Verbose:$VerbosePreference
@@ -374,7 +373,7 @@ function Get-LetsEncSSLCert {
             $cert.FriendlyName=$CertName
             Write-Verbose "Generated SSL Cert for $DnsName with Thumbprint: $($cert.Thumbprint)"
             return $cert
-        } 
+        }
     }
     return $null
 }
@@ -383,8 +382,8 @@ function Enable-WebServerSSL {
     param (
         [string] $InstallPath,
         [string] $HostDNS,
-        [string] $AdminEmail ='techsupport@ed-fi.org',
-        $iisConfig=@{  defaultSiteName="Default Web Site"; SiteName="Default Web Site"; defaultApplicationPool = "DefaultAppPool"; applicationPool = "DefaultAppPool" }
+        [string] $AdminEmail = 'techsupport@ed-fi.org',
+        $iisConfig = @{ iisUser="IIS_IUSRS"; defaultSiteName="Default Web Site"; SiteName="Default Web Site"; defaultApplicationPool = "DefaultAppPool"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
     )
     $defaultSiteName = $iisConfig.defaultSiteName
     $SiteName = $iisConfig.SiteName
@@ -409,7 +408,7 @@ function Enable-WebServerSSL {
             Write-Verbose "`nIIS is already configured for https on $SiteName as $httpsBinding.`n  Quitting without changing SSL for IIS.`n"
             return $SiteName
         }    
-    } 
+    }
     catch {
         Write-Verbose "`nIIS not yet configured for https on $SiteName `n  Checking for IIS Site first.`n"
     }
@@ -491,7 +490,7 @@ function Enable-WebServerSSL {
         # Obtain a free Let's Encrypt cert for given hostname
         $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail -Verbose:$VerbosePreference
         # Attach the cert to port 443 on the given siteName # In case of a null cert from silent fail, we'll try to bind anyway with Self-Signed
-        if ($null -ne $newCert) { 
+        if ($null -ne $newCert) {
             try {
                 Stop-IISSite -Name $SiteName -Confirm:$false
                 Write-Verbose "Command:`n New-IISSiteBinding -name $SiteName -BindingInformation `"*:443:$HostDNS`" -protocol https -CertificateThumbPrint `"$($newCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
@@ -518,6 +517,12 @@ function Enable-WebServerSSL {
             else {
                 Write-Verbose "Self-signed certificate was generated but is not active with an IIS site.`n Use the IIS Manager to select bindings to use it with as needed."
             }
+            #
+            # Add SPN for new DNS entry so that the IIS Server can support Windows Auth on that domain name
+            $spnCmd = Get-Command "setspn.exe"
+            if ($null -ne $spnCmd) {
+                Start-Process $spnCmd.Source -Wait -ArgumentList "-A","HTTP/$HostDNS",$iisConfig.integratedSecurityUser
+            }
         }
         else {
             try{
@@ -537,7 +542,6 @@ function Enable-WebServerSSL {
             }
         }
     }
-    #
     Write-Verbose "IIS is configured for https on $SiteName as $httpsBinding`n "
     return $SiteName
 }
@@ -740,7 +744,7 @@ function Install-MSSQLserverExpress {
     # Verify that the file folder is present
     if (! $(try { Test-Path -ErrorAction SilentlyContinue $FilePath } Catch { $false })) {
         $tooVerbose = New-Item -ItemType Directory -Force -Path $FilePath
-    }    
+    }
     #
     if (Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL") {
         $sqlInstances = Get-ChildItem "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names"
@@ -758,7 +762,7 @@ function Install-MSSQLserverExpress {
     $MSSEFILE = "$FilePath\SQLEXPR_x64_ENU.exe"
     $MSSEPATH = "$FilePath\SQLEXPR_x64_ENU"
     $MSSESETUP = "$MSSEPATH\setup.exe"
-    $INIFILE = "$FilePath\SQLExprConfig.ini"
+    $InstINI = "$FilePath\SQLExprConfig.ini"
     # Download, unpack, and install while setting the default instance name - will probably need to periodically refreshed until choco install works 
     if (! $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
         try {
@@ -769,16 +773,17 @@ function Install-MSSQLserverExpress {
             Write-Error "Failed to download SQL Server Express from $MSSQLEURL and store in $MSSEFILE  Check URL and permission on path.  Error: $_"
         }
     }
-    if ( $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
-        if (! ($(Try { Test-Path -ErrorAction SilentlyContinue  $MSSEPATH } Catch { $false })) -or ($(Try { Test-Path -ErrorAction SilentlyContinue  $MSSESETUP } Catch { $false }))) {
-            Write-Verbose "  Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList `"/q`",`"/x:$MSSEPATH`" "
-            Start-Process $MSSEFILE -wait -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt -ArgumentList "/q","/x:$MSSEPATH"
+    if ( $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false } ) ) {
+        if (! $(Try { Test-Path -ErrorAction SilentlyContinue  $MSSESETUP } Catch { $false } ) ) {
+            Write-Verbose "  Start-Process $MSSEFILE -wait -ArgumentList `"/q`",`"/x:$MSSEPATH`" -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt"
+            Start-Process $MSSEFILE -wait -ArgumentList "/q","/x:$MSSEPATH" -RedirectStandardOutput $MSSEPATH\extract_log.txt -RedirectStandardError $MSSEPATH\extract_error_log.txt
         }
     }
     if ($(Try { Test-Path -ErrorAction SilentlyContinue $MSSESETUP } Catch { $false })) {
-        Write-Verbose "  Start-Process $MSSESETUP -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList `"/IACCEPTSQLSERVERLICENSETERMS`",`"/Q`",`"/INSTANCEID=$SQLINST`",`"/INSTANCENAME=$SQLINST`",`"/ConfigurationFile=$INIFILE`"  "
-        Start-Process $MSSESETUP -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/ConfigurationFile=$INIFILE"
-    } else {
+        Write-Verbose " Start-Process $MSSESETUP -wait -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt -ArgumentList `"/IACCEPTSQLSERVERLICENSETERMS`",`"/Q`",`"/INSTANCEID=$SQLINST`",`"/INSTANCENAME=$SQLINST`",`"/ConfigurationFile=$InstINI`""
+        Start-Process $MSSESETUP -wait -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/ConfigurationFile=$InstINI" -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt
+    }
+    else {
         Write-Verbose "$MSSESETUP not found after attempt to download and extract!`nSetting instance name to SQLEXPRESS and installing with chocolatey instead."
         # If SQL Express manual install failed, try Chocolatey
         # This will use the default SQL Express instance name so we change SQLINST first
@@ -985,8 +990,8 @@ function Add-DesktopAppLinks {
         Get-Content -Path $solutionsHtml | Add-Content -Path $indexHtml
         Get-Content -Path $footerHtml | Add-Content -Path $indexHtml
         if ($null -eq (Get-WebApplication -Name $AppName)) {
-            $tooVerbose=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $VirtualDirectoryName -PhysicalPath $SolutionWebDir -Force
-            $tooVerbose=New-WebApplication -Name $AppName  -Site "$($iisConfig.SiteName)\$VirtualDirectoryName" -PhysicalPath $SolutionWebDir -ApplicationPool $($iisConfig.applicationPool) -Force    
+            $tooVerbose = New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $VirtualDirectoryName -PhysicalPath $SolutionWebDir -Force
+            $tooVerbose = New-WebApplication -Name $AppName  -Site "$($iisConfig.SiteName)\$VirtualDirectoryName" -PhysicalPath $SolutionWebDir -ApplicationPool $($iisConfig.applicationPool) -Force    
         }
     }
     function Update-MSEdgeAssociations {
@@ -995,7 +1000,7 @@ function Add-DesktopAppLinks {
             $EdFiDir="C:\Ed-Fi"
             )
         $AppAssocFile="$EdFiDir\LocalAppAssociations.xml"
-        Start-Process -Wait -Verbose:$VerbosePreference Dism.exe "/Online /Export-DefaultAppAssociations:$AppAssocFile" -RedirectStandardOutput "$EdFiDir\dism-log.txt" -RedirectStandardError "$EdFiDir\dism-err.txt"
+        Start-Process -Wait Dism.exe "/Online /Export-DefaultAppAssociations:$AppAssocFile" -RedirectStandardOutput "$EdFiDir\dism-log.txt" -RedirectStandardError "$EdFiDir\dism-err.txt"
         $AppAssociations=New-Object XML
         $AppAssociations.Load($AppAssocFile)
         $AppSelections = $AppAssociations.SelectNodes("/DefaultAssociations/Association[@Identifier=""http"" or @Identifier=""https"" or @Identifier="".htm"" or @Identifier="".html"" or @Identifier="".url""]")
