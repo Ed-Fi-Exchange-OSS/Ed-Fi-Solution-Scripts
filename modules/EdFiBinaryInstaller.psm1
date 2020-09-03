@@ -15,9 +15,12 @@ Function Install-BaseEdFi {
         $EdFiDir="C:\Ed-Fi",
         $iisConfig=@{ iisUser="IIS_IUSRS"; SiteName="Default Web Site"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
     )
-    $binariesConfigFile="$PSScriptRoot\modules\binaries.ps1"
+    $binariesConfigFile="$PSScriptRoot\binaries.ps1"
     if (Test-Path $binariesConfigFile) {
-        throw "Error loading binaries config package"
+        $binariesConfigFile="$PSScriptRoot\modules\binaries.ps1"
+        if (Test-Path $binariesConfigFile) {
+            throw "Error loading binaries config package"
+        }
     }
     $versionNum = 'v'+$SuiteVersion.Replace(".", "")
     $directories = @{
