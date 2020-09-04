@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
 function Get-ConfigParam {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
@@ -35,6 +39,7 @@ function Install-Choco {
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $Packages,
         [string] $Version,
+        [string] $InstallArguments,
         [string] $InstallPath = "C:\Ed-Fi"
     )
     # Uses the Chocolatey package manager to install a list of packages
@@ -56,16 +61,43 @@ function Install-Choco {
     }
     $ChocoPath=(Get-Command "choco.exe" -ErrorAction SilentlyContinue).Source
     #
-    # Attempt choco installs of key pre-reqs and tools 
-    #
-    if ($Version) {
-        # Will only work with one package at a time
-        Write-Verbose "Installing package: $Packages version: $Version"
-        Start-Process -Wait -FilePath $ChocoPath -ArgumentList "install",$Packages,"--version=$Version","-y","--no-progress" -NoNewWindow -RedirectStandardOutput "choco_$($Packages)_log.txt" -RedirectStandardError "choco_$($Packages)_err.txt"
-    } else {
-        Write-Verbose "Installing packages: $Packages"
-        Start-Process -Wait -FilePath $ChocoPath -ArgumentList "upgrade",$Packages,"-y","--no-progress" -NoNewWindow -RedirectStandardOutput "choco_$($Packages.Substring(0,3))-set_log.txt" -RedirectStandardError "choco_$($Packages.Substring(0,3))-set_err.txt"
+    # Attempt choco installs with versions or installargs and upgrades for the rest
+    # 
+    $logFile="$InstallPath\"
+    $chocArgs=[System.Collections.Generic.List[string]]::new()
+    # These special cases will only work with one package at a time
+    if ([string]::IsNullOrEmpty($InstallArguments) -and [string]::IsNullOrEmpty($Version)) {
+        $chocArgs.Add("upgrade")
+        $chocArgs.Add($Packages)
+        $logFile+="choco-upgrade-"
+        $errFile+="choco-upgrade-"
     }
+    else {
+        $chocArgs.Add("install")
+        $chocArgs.Add($Packages)
+        $logFile+="choco-install-"
+        $errFile+="choco-install-"
+        if ($InstallArguments) {
+            $chocArgs.Add("--installarguments `"'$InstallArguments'`"")
+        }
+        if ($Version) {
+            $chocArgs.Add("--version=$Version")
+        }
+    }
+    $chocArgs.Add('-y')
+    $chocArgs.Add('--noprogress')
+    if ($Packages.Length -gt 20) {
+        $logFile+=$Packages.Substring(0,19)
+    }
+    else {
+        $logFile+=$Packages
+    }
+    $errFile=$logFile
+    $logFile+="-log.txt"
+    $errFile+="-err.txt"
+    # Could use $chocArgs.ToArray()
+    Write-Verbose "Start-Process -Wait -NoNewWindow -RedirectStandardOutput $logFile -RedirectStandardError $errFile -FilePath $ChocoPath -ArgumentList $chocArgs"
+    Start-Process -Wait -NoNewWindow -RedirectStandardOutput $logFile -RedirectStandardError $errFile -FilePath $ChocoPath -ArgumentList $chocArgs
     Update-SessionEnvironment
 }
 function Copy-GitRepo {
@@ -531,7 +563,6 @@ function Enable-WebServerSSL {
                 $certStoreLocation = "Cert:\LocalMachine\My"
                 Write-Verbose "Command:`n New-IISSiteBinding -name `"$SiteName`" -BindingInformation `"*:443:*`" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"`n"
                 $httpsBinding = New-IISSiteBinding -name "$SiteName" -BindingInformation "*:443:*" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"
-                return $HostDNS
             }
             catch {
                 Write-Error "Error while binding IIS to $SiteName on https for * (all hosts) with self-signed certificate:$($selfSignedCert.Thumbprint) `n Error: $_ `n"
@@ -756,13 +787,26 @@ function Install-MSSQLserverExpress {
         Enable-TCPonSQLInstance -SQLINST $SQLINST
         return $SQLINST
     }
-    # No SQL instances found.
-    # Install MS SQL Server Express 2019
-    # 
+    # No SQL instances found so we'll Install MS SQL Server Express 2019 with our special install config ini file
+    #
+    $InstINI = "$FilePath\SQLExprConfig.ini"
+    # First try Chocolatey
+    Install-Choco -Packages "sql-server-express" -InstallArguments "/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=$SQLINST /INSTANCENAME=$SQLINST /ConfigurationFile=$InstINI"
+    if (Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL") {
+        $sqlInstances = Get-ChildItem "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names"
+        Write-Verbose "SQL Server installation found with instances:`n $($sqlInstances|ForEach-Object {$_.Property}) `n"
+        # Get SQL Server PowerShell support from the PS Gallery
+        Install-SqlServerModule
+        # Ensure TCP Connectivity is enabled
+        $SQLINST=$sqlInstances[0].Property
+        Enable-TCPonSQLInstance -SQLINST $SQLINST
+        return $SQLINST
+    }
+    Write-Verbose "SQL Server Express installation by Chocolatey failed.  Attempting to download and install directly."
+    #
     $MSSEFILE = "$FilePath\SQLEXPR_x64_ENU.exe"
     $MSSEPATH = "$FilePath\SQLEXPR_x64_ENU"
     $MSSESETUP = "$MSSEPATH\setup.exe"
-    $InstINI = "$FilePath\SQLExprConfig.ini"
     # Download, unpack, and install while setting the default instance name - will probably need to periodically refreshed until choco install works 
     if (! $(try { Test-Path -ErrorAction SilentlyContinue $MSSEFILE } Catch { $false }) ) {
         try {
@@ -786,13 +830,7 @@ function Install-MSSQLserverExpress {
         Write-Progress -Activity "Installing SQL Server Express" -Status "60% Complete:" -PercentComplete 60;
         Start-Process $MSSESETUP -wait -ArgumentList "/IACCEPTSQLSERVERLICENSETERMS","/Q","/INSTANCEID=$SQLINST","/INSTANCENAME=$SQLINST","/ConfigurationFile=$InstINI" -WorkingDirectory $MSSEPATH -RedirectStandardOutput $MSSEPATH\setup_log.txt -RedirectStandardError $MSSEPATH\setup_error_log.txt
     }
-    else {
-        Write-Verbose "$MSSESETUP not found after attempt to download and extract!`nSetting instance name to SQLEXPRESS and installing with chocolatey instead."
-        # If SQL Express manual install failed, try Chocolatey
-        # This will use the default SQL Express instance name so we change SQLINST first
-        $SQLINST = "SQLEXPRESS"
-        Install-Choco "sql-server-express"
-    }
+
     if (!(Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL")) {
         throw "SQL Server failed to install, installation canceled" 
     }

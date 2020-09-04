@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
+#Requires -Version 5
+#Requires -RunAsAdministrator
 [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
 param(
     [string] $config = "$PSScriptRoot\config\EdFiBaseConfig.json",
@@ -12,8 +18,32 @@ param(
     [string] $EdFiDir,
     [switch] $noui=$false
 )
-#Requires -Version 5
-#Requires -RunAsAdministrator
+    <#
+    .description
+    The Ed-Fi Solution Installer prepares a single Windows environment, installs a complete Ed-Fi Suite of tools, and then installs the chosen solution and all listed pre-requisites.
+    .parameter SolutionName
+    A list of solution names, an empty string for all solutions, or "base" to install only a current Ed-Fi Suite
+    .parameter InstallType
+    The type of deployment to install: 'Demo' or 'Staging'
+    .parameter AdminEmail
+    An email address of the administrative contact.
+    .parameter DnsName
+    The DNS name chosen for this environment, or blank to use only localhost and self-signed certificates.
+    .parameter DDNSUrl
+    A provider URL for posting dynamic DNS updates from this system.
+    .parameter DDNSUsername
+    The Username required to authenticate with dynamic DNS provider.
+    .parameter DDNSPassword
+    The Username required to authenticate with dynamic DNS provider.
+    .parameter config
+    A JSON-formatted file containing configuration parameters. Any parameters listed on the command line will override parameters in this file. <See the Config.md for more info>.
+    .parameter solutions
+    A JSON-formatted list of solutions to install from. <See the Config.md for more info>.
+
+    .EXAMPLE
+    install.ps1 -DnsName "my.domain.org" -AdminEmail "admin@domain.org" -DDNSUrl "https://dynamicdns.com?name={DnsName}&ip={IP}" -DDNSUsername name -DDNSPassword "pass" -SolutionName <see solution config for list of names> -InstallDemo "Demo|Staging"
+    #>
+
 Write-Verbose "Error action preference: $ErrorActionPreference"
 if ($noui) {
     $ProgressPreference = "SilentlyContinue"
@@ -80,10 +110,10 @@ if (!([string]::IsNullOrEmpty($DnsName))) {
     if ($DnsName.IndexOf(".") -gt 1) {
         $NewComputerName = $DnsName.Substring(0,$DnsName.IndexOf("."))
     }
-    else {
-        Write-Warning "WARNING!  Removing given DnsName because the provided string has no periods and therefore cannot be a complete DNS name!"
-        $DnsName =$null
-    }
+#    else {
+#        Write-Warning "WARNING!  Removing given DnsName because the provided string has no periods and therefore cannot be a complete DNS name!"
+#        $DnsName =$null
+#    }
 }
 # This can be updated in the config as MSSQLEURL as needed.
 $MSSQLEURL = Get-ConfigParam $null $cfg.MSSQLEURL 'https://download.microsoft.com/download/8/4/c/84c6c430-e0f5-476d-bf43-eaaa222a72e0/SQLEXPR_x64_ENU.exe'
@@ -140,7 +170,7 @@ Write-Progress -Activity "Essential software packages installed. Discovering IP 
 # Configure public DNS hostname and use it to get Lets Encrypt SSL Cert 
 $hostIP=Get-ExternalIP -Verbose:$VerbosePreference
 Write-Verbose "Host IP: $hostIP"
-if (![string]::IsNullOrEmpty($DnsName) -and ("edfisolsrv" -ne $DnsName)) {
+if (![string]::IsNullOrEmpty($DnsName) -and ($DnsName -ne "edfisolsrv")) {
     # Add the dns name to loopback address in servers hosts file to avoid any network vs web app config issues
     Add-NameToHostsFile $DnsName
     # Now update Dynamic DNS if credentials supplied   
@@ -148,7 +178,7 @@ if (![string]::IsNullOrEmpty($DnsName) -and ("edfisolsrv" -ne $DnsName)) {
         $updateDDNS=Update-DynDNS -HostDNS $DnsName -IP $hostIP -ProviderUrl $DDNSUrl -Credentials $dynCredentials -Verbose:$VerbosePreference
         if ($updateDDNS) {
             Start-Sleep -Seconds 2
-            Write-Verbose "Dyn DNS name: $DnsName set to IP: $hostIP"    
+            Write-Verbose "Dynamic DNS name: $DnsName set to IP: $hostIP"    
         }
         else {
             Write-Verbose "Dynamic DNS update failed.`n  You will need to update DNS manually and manually generate SSL certificates.`n "

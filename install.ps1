@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Licensed to the Ed-Fi Alliance under one or more agreements.
+# The Ed-Fi Alliance licenses this file to you under the Apache License, Version 2.0.
+# See the LICENSE and NOTICES files in the project root for more information.
 #Requires -Version 5
 #Requires -RunAsAdministrator
 param (
@@ -9,6 +13,28 @@ param (
     $SolutionName,
     $InstallType="Demo"
 )
+    <#
+    .description
+    A simple launcher for the solution installer.  Gets a basic working environment of Chocolatey and Git installed.
+    .parameter SolutionName
+    A list of solution names, an empty string for all solutions, or "base" to install only a current Ed-Fi Suite
+    .parameter InstallType
+    The type of deployment to install: 'Demo' or 'Staging'
+    .parameter AdminEmail
+    An email address of the administrative contact.
+    .parameter DnsName
+    The DNS name chosen for this environment, or blank to use only localhost and self-signed certificates.
+    .parameter DDNSUrl
+    A provider URL for posting dynamic DNS updates from this system.
+    .parameter DDNSUsername
+    The Username required to authenticate with dynamic DNS provider.
+    .PARAMETER DDNSPassword
+    The Username required to authenticate with dynamic DNS provider.
+
+    .EXAMPLE
+    install.ps1 -DnsName "my.domain.org" -AdminEmail "admin@domain.org" -DDNSUrl "https://dynamicdns.com?name={DnsName}&ip={IP}" -DDNSUsername name -DDNSPassword "pass" -SolutionName <see solution config for list of names> -InstallDemo "Demo|Staging"
+    #>
+
 function Install-ChocoGitPkg {
     Set-ExecutionPolicy Bypass -Scope Process -Force;[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
     $ChocoCmd=Get-Command "choco.exe" -ErrorAction SilentlyContinue
