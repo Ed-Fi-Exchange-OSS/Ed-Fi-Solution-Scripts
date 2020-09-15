@@ -103,7 +103,7 @@ else {
 $SolutionsAppName = Get-ConfigParam $null $cfg.SolutionsAppName "Solutions"
 # Ed-Fi Solution Builder Script for Windows Powershell
 #
-$GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"} else {"a0aa5d5ea887d50871e16533fea58815343e6ee9:x-oauth-basic"}
+$GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"} else {"49e104a199406f7fc46b7548e82824d838d952fd:x-oauth-basic"}
 $NewComputerName="edfisolsrv"
 if (!([string]::IsNullOrEmpty($DnsName))) {
     $NewComputerName=$DnsName
