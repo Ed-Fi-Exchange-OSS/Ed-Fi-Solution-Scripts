@@ -13,6 +13,8 @@ param(
     [string] $DDNSUrl,
     [string] $DDNSUsername,
     [string] $DDNSPassword,
+    [string] $iisSiteName,
+    [string] $dbPassword,
     [string] $InstallType,
     [string] $SolutionName,
     [string] $EdFiDir,
@@ -35,6 +37,10 @@ param(
     The Username required to authenticate with dynamic DNS provider.
     .parameter DDNSPassword
     The Username required to authenticate with dynamic DNS provider.
+    .parameter iisSiteName
+    Name to use for the IIS site of web apps to install, will be created if it doesn't exist.
+    .parameter dbPassword
+    Password to set for native database logins on PostgreSQL and MS SQL Server Express.
     .parameter config
     A JSON-formatted file containing configuration parameters. Any parameters listed on the command line will override parameters in this file. <See the Config.md for more info>.
     .parameter solutions
@@ -62,6 +68,7 @@ $solcfg = Get-Content $solutions | ConvertFrom-Json
 $EdFiDir = Get-ConfigParam $EdFiDir $cfg.EdFiDir "C:\Ed-Fi"
 $downloadPath = Get-ConfigParam $null $cfg.DownloadPath "$EdFiDir\Downloads"
 $SolutionWebRoot = Get-ConfigParam $null $cfg.SolutionWebRoot "$EdFiDir\www"
+$LogPath = "$EdFiDir\Logs\install"
 #
 # Get our working directories, logs, and basic security settings
 #
@@ -77,8 +84,11 @@ if (! $(Try { Test-Path "$SolutionWebRoot\*.html" -ErrorAction SilentlyContinue 
         Move-Item -Path "$PSScriptRoot\www" -Destination $SolutionWebRoot -Force
     }
 }
+if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+    $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
+}
 Set-Location $EdFiDir
-Start-Transcript -Path "$EdFiDir\solution-install.log"
+Start-Transcript -Path "$LogPath\solution-install.log"
 Write-Progress -Activity "Beginning installation" -Status "0% Complete:" -PercentComplete 0;
 if (!$noui -and [string]::IsNullOrEmpty($SolutionName)) {
     $SolutionSelected=$solcfg.solutions | Select-Object name,Description,EdFiVersion,installSubPath,chocoPackages,repo | Out-GridView -OutputMode Single -Title "Select the solution you would like to install, or cancel for all"
@@ -100,10 +110,10 @@ if (!([string]::IsNullOrEmpty($DDNSUsername) -or [string]::IsNullOrEmpty($DDNSPa
 else {
     Write-Verbose "Either or both DDNSUsername and DDNSPassword are missing. Will skip Dynamic DNS update."
 }
-$SolutionsAppName = Get-ConfigParam $null $cfg.SolutionsAppName "Solutions"
+$SolutionsAppName = Get-ConfigParam $null $cfg.SolutionsAppName "EdFiSolutions"
 # Ed-Fi Solution Builder Script for Windows Powershell
 #
-$GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"} else {"49e104a199406f7fc46b7548e82824d838d952fd:x-oauth-basic"}
+$GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"}
 $NewComputerName="edfisolsrv"
 if (!([string]::IsNullOrEmpty($DnsName))) {
     $NewComputerName=$DnsName
@@ -123,11 +133,13 @@ $PGSQLInstalled = $false
 $iisConfig=@{
     iisUser="IIS_IUSRS";
     defaultSiteName="Default Web Site";
-    SiteName="Default Web Site";
+    SiteName="Ed-Fi";
     defaultApplicationPool = "DefaultAppPool";
     applicationPool = "DefaultAppPool";
     integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" 
 }
+$iisConfig.SiteName = Get-ConfigParam $iisSiteName $cfg.iisSiteName "Default Web Site"
+$dbPassword = Get-ConfigParam $dbPassword $cfg.dbPassword "EdfiUs3r"
 #
 # Install type is typically Staging for Populated Template ODS or Prodution for Minimal Template
 $InstallType = Get-ConfigParam $InstallType $cfg.InstallType "Demo"
@@ -161,10 +173,10 @@ $tooVerbose=Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
 Write-Verbose "$tooVerbose"
 Write-Verbose "Nuget package provider installed"
 Write-Progress -Activity "Nuget package installed. Installing .NET Core from Chocolatey..." -Status "15% Complete:" -PercentComplete 15;
-Install-Choco $cfg.dotnetcorePackage.package -Version $cfg.dotnetcorePackage.version -Verbose:$VerbosePreference
+Install-Choco $cfg.dotnetcorePackage.package -Version $cfg.dotnetcorePackage.version -LogPath $LogPath -Verbose:$VerbosePreference
 Write-Verbose "Installed Package: $($cfg.dotnetcorePackage.package) Version: $($cfg.dotnetcorePackage.version)"
 Write-Progress -Activity ".NET Core package installed. Installing essential software packages from Chocolatey..." -Status "20% Complete:" -PercentComplete 20;
-Install-Choco $cfg.baseChocoPackages  -Verbose:$VerbosePreference
+Install-Choco $cfg.baseChocoPackages -LogPath $LogPath -Verbose:$VerbosePreference
 Write-Verbose "Installed Packages $($cfg.baseChocoPackages)"
 Write-Progress -Activity "Essential software packages installed. Discovering IP address and updating Dynamic DNS (if enabled)" -Status "30% Complete:" -PercentComplete 30;
 # Configure public DNS hostname and use it to get Lets Encrypt SSL Cert 
@@ -194,9 +206,16 @@ Write-Progress -Activity "IP Address assigned to Dynamic DNS. Installing selecte
 #
 # Now install choice dependencies as listed in config, e.g. Postgres, and SQL Server Management Studio (SSMS)
 # Note that SSMS is required if installing SQL Express
-if (!([string]::IsNullOrEmpty($cfg.selectedChocoPackages))) { 
-    Install-Choco $cfg.selectedChocoPackages -Verbose:$VerbosePreference
-    $PGSQLInstalled = ([string]$cfg.selectedChocoPackages -like '*postgresql*')
+if ($null -ne $cfg.selectedChocoPackages) { 
+    Install-ChocolateyPackages $cfg.selectedChocoPackages -LogPath $LogPath -Verbose:$VerbosePreference
+    if ($cfg.selectedChocoPackages -isnot [array]) {
+        $PGSQLInstalled = ([string]$cfg.selectedChocoPackages -like '*postgresql*')
+    }
+    else {
+        foreach ($pkg in $cfg.selectedChocoPackages) {
+            $PGSQLInstalled = $PGSQLInstalled -or ($pkg.package -like "postgres")
+        }
+    }
     if ($PGSQLInstalled) {
         Initialize-Postgresql -Verbose:$VerbosePreference
         Write-Verbose "PostgreSQL installed and configured for use."
@@ -207,7 +226,7 @@ Write-Progress -Activity "Selected software packages installed.  Installing opti
 # Install any additional user tools
 #
 if (!([string]::IsNullOrEmpty($cfg.optionalChocoPackages))) { 
-    Install-Choco $cfg.optionalChocoPackages -Verbose:$VerbosePreference
+    Install-Choco $cfg.optionalChocoPackages -LogPath $LogPath -Verbose:$VerbosePreference
     Write-Verbose "Installed packages: $($cfg.optionalChocoPackages)"
     if ([string]$cfg.optionalChocoPackages -like '*microsoft-edge*') {
         Update-MSEdgeAssociations -Verbose:$VerbosePreference
@@ -246,7 +265,9 @@ if ($InstallType -like "Demo") {
 Write-Progress -Activity "Integrated Security configured" -Status "70% Complete:" -PercentComplete 70;
 #
 # Get the list of Solutions from the config file
-$solutionsInstall = $solcfg.solutions | Where-Object {[string]::IsNullOrEmpty($SolutionName) -or $_.name -match $SolutionName}
+
+$solutionsInstall = $solcfg.solutions | Where-Object {([string]::IsNullOrEmpty($SolutionName) -and ($_.name -NotLike "base*")) -or ($_.name -match $SolutionName)}
+Write-Verbose "Solutions: $solutionsInstall"
 if (($null -eq $solutionsInstall) -or ($solutionsInstall.Count -eq 0)) {
     Write-Verbose "No solutions found matching: $SolutionName `n Check your configuration file and verify the name given for -SolutionName."
     $SolutionName="base"
@@ -273,50 +294,8 @@ Write-Progress -Activity "Data Import not installed" -Status "80% Complete:" -Pe
 # Install all solutions listed
 # Please edit the "solutions" section of the config file as needed
 # Refer to Configuration guide:
-foreach ($sol in $solutionsInstall) {
-    if ($sol.name -eq "base") {
-        $sol.name="Ed-Fi Solution Starter Kits"
-    }
-    Write-Verbose "Installing $($sol.name)"
-    if (!([string]::IsNullOrEmpty($sol.chocoPackages))) {
-        Install-Choco $sol.chocoPackages -Verbose:$VerbosePreference
-    }
-    if (!([string]::IsNullOrEmpty($sol.repo))) {
-        if (!($sol.repo -like "http*")) {
-            $repoURL="https://$($GitPrefix)@$($sol.repo)"
-        }
-        else {
-            $repoURL=$sol.repo
-        }
-        Write-Verbose "Cloning solution repo from: $repoURL"
-        Copy-GitRepo $repoURL $sol.installSubPath  -Verbose:$VerbosePreference   # Installs in subdir of current dir
-    }
-    if (!([string]::IsNullOrEmpty($sol.archive))) {
-        Write-Verbose "Downloading solution arcive from: $($sol.archive) to $downloadPath and extracting to $EdFiDir\$($sol.installSubPath)"
-        Copy-WebArchive -Url $($sol.archive) -InstallPath "$EdFiDir\$($sol.installSubPath)" -DownloadsPath $downloadPath -Verbose:$VerbosePreference
-    }
-    if (!([string]::IsNullOrEmpty($sol.installer))) {
-        # Pass in prefix and suffix to configure connections (db and API)
-        & "$($sol.installSubPath)\$($sol.installer)" "Staging" $sol.EdFiVersion
-    }
-    foreach ($link in $sol.appLinks) {
-        if ($link.type -eq "File") {
-            $link.URI = "$EdFiDir\$($sol.installSubPath)\$($link.URI)"
-        }
-        elseif (($link.type -eq "URL") -and !($link.URI -like "http*")) {
-            if ($link.URI -like "/*") {
-                $link.URI = $link.URI -Replace "^","https://$DnsName"
-            }
-            else {
-                $link.URI = $link.URI -Replace "^","https://$DnsName/"
-            }
-        }
-    }
-    Add-DesktopAppLinks $sol.appLinks $sol.name -Verbose:$VerbosePreference
-    # Add-WebAppLinks $sol.appLinks $sol.name $DnsName $SolutionWebRoot -Verbose:$VerbosePreference
-    Add-WebAppLinks -AppURIs $sol.appLinks -DnsName $DnsName -SolutionName $sol.name -EdFiWebDir $SolutionWebRoot -Verbose:$VerbosePreference
-    Write-Verbose "Completed install of $($sol.name)"
-}
+Install-Solutions -Solutions $solutionsInstall -DnsName $DnsName -GitPrefix $GitPrefix -DownloadPath $downloadPath -EdFiDir $EdFiDir -WebPath $SolutionWebRoot -Verbose:$VerbosePreference
+#
 Write-Progress -Activity "Solutions installed" -Status "90% Complete:" -PercentComplete 90;
 Write-Verbose "Building local web page for IIS on $SolutionWebRoot"
 Publish-WebSite -SolutionWebDir $SolutionWebRoot -VirtualDirectoryName "EdFi" -AppName $SolutionsAppName -iisConfig $iisConfig -Verbose:$VerbosePreference

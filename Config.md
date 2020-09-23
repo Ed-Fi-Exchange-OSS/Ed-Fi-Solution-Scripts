@@ -31,6 +31,8 @@ In addtion to all of the command line parameters, the following configuration se
 * "SolutionsAppName": Name of installed Web App,  default="EdFiSolutions"
 * "MSSQLEURL": default:(full URL for SQL Server Express 2019)
 * "MSSQLINST": default:"MSSQLSERVER"
+* "iisSiteName": default "Ed-Fi"
+* "dbPassword": default "EdfiUs3r"
 * "dotnetcorePackage": defaults:
      * "package":"dotnetcore-windowshosting"
      *  "version":"2.2.8"

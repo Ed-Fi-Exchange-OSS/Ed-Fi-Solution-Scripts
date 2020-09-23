@@ -34,13 +34,47 @@ function Enable-RequiredWindowsFeatures {
     Write-Verbose "$tooVerbose"
 #    Install-WindowsFeature -name RSAT-AD-PowerShell
 }
+function Install-ChocolateyPackages {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()] $Packages,
+        [string] $InstallPath = "C:\Ed-Fi",
+        [string] $LogPath = "C:\Ed-Fi\Logs"
+    )
+    if ($Packages -isnot [array]) {
+        Install-Choco -Packages $Packages -InstallPath $InstallPath -LogPath $LogPath
+    }
+    else {
+        $versionedPackages = $Packages | Where-Object {$null -ne $_.version}
+        $arglistPackages = $Packages | Where-Object {($null -eq $_.version) -and ($null -ne $_.installargs)}
+        $otherPackages = $Packages | Where-Object {($null -eq $_.version) -and ($null -eq $_.installargs)}
+        $packageList = ""
+        foreach ($pkgItem in $otherPackages) {
+            $packageList+="$($pkgItem.package) "
+        }
+        foreach ($pkgItem in $versionedPackages) {
+            if ([string]::IsNullOrEmpty($pkgItem.installargs)) {
+                Install-Choco -Packages $pkgItem.package -Version $pkgItem.version -InstallPath $InstallPath -LogPath $LogPath
+            }
+            else {
+                Install-Choco -Packages $pkgItem.package -Version $pkgItem.version -InstallArguments $pkgItem.installargs -InstallPath $InstallPath -LogPath $LogPath
+            }
+        }
+        foreach ($pkgItem in $arglistPackages) {
+            Install-Choco -Packages $pkgItem.package -Version $pkgItem.version -InstallArguments $pkgItem.installargs -InstallPath $InstallPath -LogPath $LogPath
+        }
+        Install-Choco -Packages $packageList -InstallPath $InstallPath -LogPath $LogPath
+    }
+}
 function Install-Choco {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $Packages,
         [string] $Version,
         [string] $InstallArguments,
-        [string] $InstallPath = "C:\Ed-Fi"
+        [string] $Source,
+        [string] $InstallPath = "C:\Ed-Fi",
+        [string] $LogPath = "C:\Ed-Fi\Logs"
     )
     # Uses the Chocolatey package manager to install a list of packages
     # $packages is a space separated string of packages to install simultaneously with chocolatey
@@ -63,7 +97,7 @@ function Install-Choco {
     #
     # Attempt choco installs with versions or installargs and upgrades for the rest
     # 
-    $logFile="$InstallPath\"
+    $logFile="$LogPath\"
     $chocArgs=[System.Collections.Generic.List[string]]::new()
     # These special cases will only work with one package at a time
     if ([string]::IsNullOrEmpty($InstallArguments) -and [string]::IsNullOrEmpty($Version)) {
@@ -82,6 +116,9 @@ function Install-Choco {
         }
         if ($Version) {
             $chocArgs.Add("--version=$Version")
+        }
+        if ($Source) {
+            $chocArgs.Add("--source=$Source")
         }
     }
     $chocArgs.Add('-y')
@@ -226,7 +263,8 @@ function Install-NugetPackage {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $packageName,
         [string] $version,
         [string] $packageSource = "https://www.myget.org/F/ed-fi/",
-        [string] $FilePath = "C:\Ed-Fi\Downloads"
+        [string] $FilePath = "C:\Ed-Fi\Downloads",
+        [string] $LogPath = "C:\Ed-Fi\Logs"
     )
     # Verify that the Downloads folder is present
     if (! $(Try { Test-Path -ErrorAction SilentlyContinue $FilePath } Catch { $false }) ) {
@@ -246,7 +284,7 @@ function Install-NugetPackage {
         }
     }
     $nugetPath=$(Get-Command "nuget.exe").Source
-    $nugetCMD=Start-Process -Wait -FilePath $nugetPath -NoNewWindow -ArgumentList "install $packageName","-source $packageSource","-Version $version","-outputDirectory $FilePath","-NoCache" -RedirectStandardOutput "nuget_$version_log.txt" -RedirectStandardError "nuget_$version_err.txt"
+    $nugetCMD=Start-Process -Wait -FilePath $nugetPath -NoNewWindow -ArgumentList "install $packageName","-source $packageSource","-Version $version","-outputDirectory $FilePath","-NoCache" -RedirectStandardOutput "$LogPath\nuget_$($version)_log.txt" -RedirectStandardError "$LogPath\nuget_$($version)_err.txt"
     if ($nugetCMD.ExitCode -ne 0) {
         throw "Failed to install package $packageName $version"
     }
@@ -326,6 +364,16 @@ function Update-DynDNS {
         Write-Verbose "DDNS update result: $Result"
     }
     catch {
+        Write-Error "Secure update of Dynamic DNS failed.`n Attempting less secure update.`n  Error: $_ "
+    }
+    try {
+        [string]$authparams="https://$($Credentials.GetNetworkCredential().UserName):$($Credentials.GetNetworkCredential().Password)@"
+        $ProviderUrl = $ProviderUrl -replace "^https://",$authparams
+        Write-Verbose " Calling: Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent `"EdFiAlliance SolutionBuilder`" "
+        $Result = Invoke-RestMethod -Uri $ProviderUrl -Credential $Credentials -UserAgent "EdFiAlliance SolutionBuilder" -Verbose:$VerbosePreference
+        Write-Verbose "DDNS update result: $Result"
+    }
+    catch {
         Write-Error "Failed to update Dynamic DNS entry.  Error: $_ "
         return $false 
     }
@@ -371,7 +419,8 @@ function Get-LetsEncSSLCert {
     param (
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $DnsName,
         $CertName="Ed-Fi Solution Installer",
-        $AdminEmail="techsupport@ed-fi.org"
+        $AdminEmail="techsupport@ed-fi.org",
+        [string]$LogPath = "C:\Ed-Fi\Logs"
     )
     # Check for existing certificate first
     $certificates = Get-ChildItem Cert:\LocalMachine\WebHosting
@@ -388,7 +437,7 @@ function Get-LetsEncSSLCert {
     try {
         # The Win-Acme client will do all of the work of calling the API, storing the certificate,
         # and adding it to the matching host entry in IIS
-        Start-Process "wacs" -Wait -ArgumentList "--target iis --host $DnsName --accepttos --emailaddress $AdminEmail" -RedirectStandardOutput "winacme_ssl_cert_log.txt" -RedirectStandardError "winacme_ssl_cert_err.txt"
+        Start-Process "wacs" -Wait -ArgumentList "--target iis --host $DnsName --accepttos --emailaddress $AdminEmail" -RedirectStandardOutput "$LogPath\winacme_ssl_cert_log.txt" -RedirectStandardError "$LogPath\winacme_ssl_cert_err.txt"
         Write-Verbose "Windows Acme Client Services completed SSL certificate request.`nCheck WACS log files for more info:`nwinacme_ssl_cert_log.txt`nwinacme_ssl_cert_err.txt"
     }
     catch {
@@ -409,13 +458,42 @@ function Get-LetsEncSSLCert {
     }
     return $null
 }
+function Get-SiteSSLCertificate {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [string] $DnsName,
+        $iisConfig = @{ iisUser="IIS_IUSRS"; defaultSiteName="Default Web Site"; SiteName="Default Web Site"; defaultApplicationPool = "DefaultAppPool"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
+    )
+    $defaultSiteName = $iisConfig.defaultSiteName
+    $SiteName = $iisConfig.SiteName
+    $httpsBinding = $null
+    if ([string]::IsNullOrEmpty($DnsName) -or ($DnsName -like "localhost*")) {
+        $DnsName = "localhost"
+    }
+    # Check for a different Site Name than default
+    if ([string]::IsNullOrEmpty($SiteName)) {
+        # Must use default site name on localhost to avoid breaking things
+        $SiteName = $defaultSiteName
+        Write-Verbose "Using default (existing) IIS site: $SiteName"
+    }
+    # Look for and return an existing SSL binding for the given site name
+    try {
+        if ($httpsBinding=Get-IISSiteBinding -Name $SiteName -Protocol "https") {
+            return $httpsBinding.CertificateHash
+        }    
+    }
+    catch {
+        Write-Verbose "`nIIS not yet configured for https on $SiteName `n"
+        return $null
+    }
+}
 function Enable-WebServerSSL {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
         [string] $InstallPath,
         [string] $HostDNS,
         [string] $AdminEmail = 'techsupport@ed-fi.org',
-        $iisConfig = @{ iisUser="IIS_IUSRS"; defaultSiteName="Default Web Site"; SiteName="Default Web Site"; defaultApplicationPool = "DefaultAppPool"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
+        $iisConfig = @{ iisUser="IIS_IUSRS"; defaultSiteName="Default Web Site"; SiteName="Ed-Fi"; defaultApplicationPool = "DefaultAppPool"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
     )
     $defaultSiteName = $iisConfig.defaultSiteName
     $SiteName = $iisConfig.SiteName
@@ -430,13 +508,12 @@ function Enable-WebServerSSL {
     }
     # Check for a different Site Name than default
     if ([string]::IsNullOrEmpty($SiteName)) {
-        # Must use default site name on localhost to avoid breaking things
         $SiteName = $defaultSiteName
         Write-Verbose "Using default (existing) IIS site: $SiteName"
     }
     # Look for and return an existing SSL binding for the given site name
     try {
-        if ($httpsBinding=Get-IISSiteBinding -Name $SiteName -Protocol "https") {
+        if ($httpsBinding=Get-IISSiteBinding -Name $SiteName -Protocol "https" -ErrorAction SilentlyContinue) {
             Write-Verbose "`nIIS is already configured for https on $SiteName as $httpsBinding.`n  Quitting without changing SSL for IIS.`n"
             return $SiteName
         }    
@@ -454,7 +531,7 @@ function Enable-WebServerSSL {
         }
         if ($null -eq $iisSite) {
             try {
-                $iisSite=New-IISSite -Name $SiteName -BindingInformation "*:80:$HostDNS" -PhysicalPath $InstallPath 
+                $iisSite=New-IISSite -Name $SiteName -BindingInformation "*:80:$HostDNS" -PhysicalPath "$InstallPath\www"
             }
             catch {
                 if ($SiteName -eq $defaultSiteName) { 
@@ -497,7 +574,7 @@ function Enable-WebServerSSL {
         #  and it shouldn't break the usual wildcard entry 
         $httpsBinding=$null
         try {
-            $httpsBinding=Get-IISSiteBinding -Name $SiteName -BindingInformation "*:80:$HostDNS"
+            $httpsBinding=Get-IISSiteBinding -Name $SiteName -BindingInformation "*:80:$HostDNS"  -ErrorAction SilentlyContinue
         }
         catch {
             Write-Verbose "No binding for host:$HostDNS for site:$SiteName `n  Attempting to bind."
@@ -538,9 +615,9 @@ function Enable-WebServerSSL {
             if ($defaultSiteName -ne $SiteName) {
                 # Now add trusted self-signed cert to localhost, may require some manual re-map in IIS Manager. 
                 $certStoreLocation = "Cert:\LocalMachine\My"
-                Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:443:localhost`" -protocol https -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
+                Write-Verbose "Command:`n New-IISSiteBinding -name $defaultSiteName -BindingInformation `"*:4443:localhost`" -protocol https -CertificateThumbPrint `"$($selfSignedCert.Thumbprint)`"  -CertStoreLocation $certStoreLocation`n"
                 try {
-                    $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:443:localhost" -protocol https -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
+                    $httpsBinding = New-IISSiteBinding -name $defaultSiteName -BindingInformation "*:4443:localhost" -protocol https -CertificateThumbPrint "$($selfSignedCert.Thumbprint)"  -CertStoreLocation $certStoreLocation
                 }
                 catch {
                     Write-Error "Error while binding IIS to $defaultSiteName on https for $HostDNS with self-signed certificate:$($selfSignedCert.Thumbprint) `n"
@@ -967,6 +1044,12 @@ function Add-DesktopAppLinks {
         $Shortcut.TargetPath = $appInstall.URI
         $Shortcut.Save()
     }
+    # Add File Links to public desktop, these can be regular files or programs
+    foreach ($appInstall in $AppURIs | Where-Object {$_.type -eq "App"}) {
+        $Shortcut = $WScriptShell.CreateShortcut("$EdFiSolFolder\$($appInstall.name).lnk")
+        $Shortcut.TargetPath = "$($appInstall.command) $($appInstall.appfile)"
+        $Shortcut.Save()
+    }
 }
     function Add-WebAppLinks {
         [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
@@ -974,7 +1057,7 @@ function Add-DesktopAppLinks {
             $AppURIs,
             $DnsName="localhost",
             $SolutionName="Ed-Fi Tools",
-            $EdFiWebDir="C:\Ed-Fi\www"
+            $WebPath="C:\Ed-Fi\www"
         )
         # Example of what to pass in
         # $appURLs = @( 
@@ -983,10 +1066,10 @@ function Add-DesktopAppLinks {
         #             )
         #
         Write-Verbose "Adding Solution Links to Ed-Fi Solutions website for local IIS homepage"
-        $solHtmlFile="$EdFiWebDir\SolutionItems.html"
-        if (! $(Try { Test-Path -ErrorAction SilentlyContinue $solHtmlFile } Catch { $false }) ) {
-            if (! $(Try { Test-Path -ErrorAction SilentlyContinue  $solHtmlFile } Catch { $false }) ) {
-                $tooVerbose = New-Item -ItemType Directory -Force -Path $EdFiWebDir
+        $solHtmlFile="$WebPath\SolutionItems.html"
+        if (! $(Try { Test-Path $solHtmlFile -ErrorAction SilentlyContinue } Catch { $false }) ) {
+            if (! $(Try { Test-Path $EdFiWebDir -ErrorAction SilentlyContinue } Catch { $false }) ) {
+                $tooVerbose = New-Item -ItemType Directory -Force -Path $WebPath
             }
             Set-Content $solHtmlFile ""
         }
@@ -998,6 +1081,8 @@ function Add-DesktopAppLinks {
                 $solHtmlSections+="<li><a href=`"$($appInstall.URI)`">$($appInstall.name)</a></li>`n"
             } elseif ($appInstall.type -eq "File") {
                 $solHtmlSections+="<li><a href=`"file:$($appInstall.URI)`">$($appInstall.name)</a></li>`n"
+            } elseif ($appInstall.type -eq "App") {
+                $solHtmlSections+="<li><a href=`"file:$($appInstall.appfile)`">$($appInstall.name)</a></li>`n"
             } else {
                 Write-Verbose "App link with type: $($appInstall.type)"
             }
@@ -1020,7 +1105,7 @@ function Add-DesktopAppLinks {
         [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
         param (
             $SolutionWebDir="C:\Ed-Fi\www",
-            $VirtualDirectoryName="EdFiWWW",
+            $VirtualDirectoryName="EdFi",
             $AppName="EdFiSolutions",
             $iisConfig=@{ iisUser="IIS_IUSRS"; SiteName = "Default Web Site"; applicationPool = "DefaultAppPool"; integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" }
         )
@@ -1041,10 +1126,11 @@ function Add-DesktopAppLinks {
     function Update-MSEdgeAssociations {
         [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
         param (
-            $EdFiDir="C:\Ed-Fi"
+            $EdFiDir="C:\Ed-Fi",
+            [string]$LogPath = "C:\Ed-Fi\Logs"
             )
         $AppAssocFile="$EdFiDir\LocalAppAssociations.xml"
-        Start-Process -Wait Dism.exe "/Online /Export-DefaultAppAssociations:$AppAssocFile" -RedirectStandardOutput "$EdFiDir\dism-log.txt" -RedirectStandardError "$EdFiDir\dism-err.txt"
+        Start-Process -Wait Dism.exe "/Online /Export-DefaultAppAssociations:$AppAssocFile" -RedirectStandardOutput "$LogPath\dism-exp-log.txt" -RedirectStandardError "$LogPath\dism-exp-err.txt"
         $AppAssociations=New-Object XML
         $AppAssociations.Load($AppAssocFile)
         $AppSelections = $AppAssociations.SelectNodes("/DefaultAssociations/Association[@Identifier=""http"" or @Identifier=""https"" or @Identifier="".htm"" or @Identifier="".html"" or @Identifier="".url""]")
@@ -1053,5 +1139,71 @@ function Add-DesktopAppLinks {
             $node.ApplicationName="Microsoft Edge"
         }
         $AppAssociations.save($AppAssocFile)
-        Start-Process Dism.exe "/online /import-defaultappassociations:$AppAssocFile"
+        Start-Process Dism.exe "/online /import-defaultappassociations:$AppAssocFile" -RedirectStandardOutput "$LogPath\dism-imp-log.txt" -RedirectStandardError "$LogPath\dism-imp-err.txt"
+    }
+    function Install-Solutions {
+        [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+        param (
+            $Solutions,
+            $DnsName,
+            $GitPrefix,
+            $DownloadPath,
+            $WebPath,
+            $EdFiDir="C:\Ed-Fi"
+            )
+        # Ex: Install-Solutions -Solutions $solutionsInstall -DnsName $DnsName -GitPrefix $GitPrefix -DownloadPath $downloadPath -WebPath $SolutionsWebRoot -EdFiDir $EdFiDir
+        if ([string]::IsNullOrEmpty($WebPath)) {
+            $WebPath="$EdFiDir\www"
+        }
+        foreach ($sol in $Solutions) {
+            if ($sol.name -like "base*") {
+                $sol.name="Ed-Fi Solution Starter Kit base"
+            }
+            Write-Verbose "Installing $($sol.name)"
+            if (!([string]::IsNullOrEmpty($sol.chocoPackages))) {
+                Install-Choco $sol.chocoPackages -Verbose:$VerbosePreference
+            }
+            if (!([string]::IsNullOrEmpty($sol.repo))) {
+                if (!($sol.repo -like "http*")) {
+                    $repoURL="https://$($GitPrefix)@$($sol.repo)"
+                }
+                else {
+                    $repoURL=$sol.repo
+                }
+                Write-Verbose "Cloning solution repo from: $repoURL"
+                Set-Location $EdFiDir
+                Copy-GitRepo $repoURL $sol.installSubPath  -Verbose:$VerbosePreference   # Installs in subdir of current dir
+            }
+            if (!([string]::IsNullOrEmpty($sol.archive))) {
+                Write-Verbose "Downloading solution arcive from: $($sol.archive) to $DownloadPath and extracting to $EdFiDir\$($sol.installSubPath)"
+                Copy-WebArchive -Url $($sol.archive) -InstallPath "$EdFiDir\$($sol.installSubPath)" -DownloadsPath $DownloadPath -Verbose:$VerbosePreference
+            }
+            if(!(Test-Path -ErrorAction SilentlyContinue $sol.installSubPath)) {
+                throw "Failed to install solution files! Check repo or archive settings`n Repo: $($sol.repo)`n Archive: $($sol.archive)"
+            }
+            if (!([string]::IsNullOrEmpty($sol.installer))) {
+                # Pass in prefix and suffix to configure connections (db and API)
+                & "$($sol.installSubPath)\$($sol.installer)" "Staging" $sol.EdFiVersion
+            }
+            foreach ($link in $sol.appLinks) {
+                if ($link.type -eq "File") {
+                    $link.URI = "$EdFiDir\$($sol.installSubPath)\$($link.URI)"
+                }
+                elseif (($link.type -eq "URL") -and !($link.URI -like "http*")) {
+                    if ($link.URI -like "/*") {
+                        $link.URI = $link.URI -Replace "^","https://$DnsName"
+                    }
+                    else {
+                        $link.URI = $link.URI -Replace "^","https://$DnsName/"
+                    }
+                }
+                elseif ($link.type -eq "App") {
+                    $link.appfile = "$EdFiDir\$($sol.installSubPath)\$($link.appfile)"
+                }
+            }
+            Add-DesktopAppLinks $sol.appLinks $sol.name -Verbose:$VerbosePreference
+            # Add-WebAppLinks $sol.appLinks $sol.name $DnsName $SolutionWebRoot -Verbose:$VerbosePreference
+            Add-WebAppLinks -AppURIs $sol.appLinks -DnsName $DnsName -SolutionName $sol.name -WebPath $WebPath -Verbose:$VerbosePreference
+            Write-Verbose "Completed install of $($sol.name)"
+        }
     }

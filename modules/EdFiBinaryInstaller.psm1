@@ -52,8 +52,8 @@ Function Install-BaseEdFi {
     # Database vars
     $backupLocation = "$EdFiDir\v$SuiteVersion-$InstallType\dbs"
     $NamePrefix = "$InstallType"
-    $NameSuffix = "$versionNum"
-    $logFileSuffix = "$($versionNum)-$($InstallType)"
+    $NameSuffix = "$($InstallType)_$versionNum"
+    $logFileSuffix = "$($InstallType)-$($versionNum)"
     $odsName="" # Will add prefix and suffix so ODS name could be: Staging_EdFiODS_v340
     # 1. Ensure paths exist and set permissions accordingly
     if (! $(Try { Test-Path $EdFiDir -ErrorAction SilentlyContinue } Catch { $false }) ) {
@@ -73,12 +73,14 @@ Function Install-BaseEdFi {
     $binaries = Invoke-Expression (Get-Content -Raw -Path $binariesConfigFile)
     #
     # 2. Add main virtual directory for this Ed-Fi Suite to IIS
-    $tooVerbose=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -PhysicalPath $directories.install -Force
-    Write-Verbose "New-WebVirtualDirectory: $tooVerbose"
-    # Create a table to collect the URLs for later use
-    $appURLTable = @(
-        @{ name= "Ed-Fi API $virtualDirectoryName"; type= "URL"; URI="/$virtualDirectoryName/api" }
-    )
+    if ($virtualDir=Get-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -ErrorAction SilentlyContinue ) {
+        Write-Verbose "Virtual directory for Suite: $SuiteVersion found at: $virtualDir `n  Skipping re-installation for site: $($iisConfig.SiteName)"
+    } else {
+        $virtualDir=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -PhysicalPath $directories.install -Force
+        Write-Verbose "New-WebVirtualDirectory: $virtualDir"
+    }
+    # Create a list to collect the URLs for later use
+    $appUrlList = [System.Collections.Generic.List[System.Collections.Hashtable]]::new()
     #
     # 3. Download, extract/install, and set permissions for all listed binaries
     #
@@ -89,7 +91,12 @@ Function Install-BaseEdFi {
         $pkgInstallPath = "$($directories.install)\$($b.name)"
         $downloadUrl = $b.url
         if($b.urlVersionOverride -and $b.urlVersionOverride[$versionNum]){ $downloadUrl = $b.urlVersionOverride[$versionNum] }
-        Copy-WebArchive -Url $downloadUrl -InstallPath $pkgInstallPath -FilePath $dlFilePath
+        try {
+            Copy-WebArchive -Url $downloadUrl -InstallPath $pkgInstallPath -FilePath $dlFilePath
+        }
+        catch {
+            Write-Warning "Binary $($b.name) was not installed. Message: $_"
+        }
         $AccessPermissions="ReadAndExecute"
         if ($b.name -eq "AdminApp") { $AccessPermissions="Modify" }
         Set-PermissionsOnPath $pkgInstallPath $iisConfig.iisUser $AccessPermissions
@@ -99,16 +106,33 @@ Function Install-BaseEdFi {
         $appName = $b.name
         $appPhysicalPath = "$($directories.install)\$appName"
         $applicationIISPath = "$($iisConfig.SiteName)/$virtualDirectoryName/$appName"
-        $tooVerbose=New-WebApplication -Name $appName  -Site "$($iisConfig.SiteName)\$virtualDirectoryName" -PhysicalPath $appPhysicalPath -ApplicationPool $($iisConfig.applicationPool) -Force
-        Write-Verbose "New-WebApplication: $tooVerbose"
+        if ($webAppInstall=Get-WebApplication -Name $appName  -Site "$($iisConfig.SiteName)\$virtualDirectoryName" -ErrorAction SilentlyContinue) {
+            Write-Verbose "Web app: $appName is already installed: $webAppInstall"
+            continue
+        }
+        else {
+            $webAppInstall=New-WebApplication -Name $appName  -Site "$($iisConfig.SiteName)\$virtualDirectoryName" -PhysicalPath $appPhysicalPath -ApplicationPool $($iisConfig.applicationPool) -Force
+            Write-Verbose "New-WebApplication: $webAppInstall"
+        }
         # Add URL of app to table
         if ($b.name -ne "Api") {
-            $appURLTable += @{ name="Ed-Fi $($b.name) $virtualDirectoryName"; type="URL"; URI="/$virtualDirectoryName/$($b.name)"}
-        }    
+            $appUrlList.Add(@{ name="Ed-Fi $($b.name) $virtualDirectoryName"; type="URL"; URI="/$virtualDirectoryName/$($b.name)"})
+        }
+        else {
+            if ($versionNum -ne "v260") {
+                $appUrlList.Add(@{ name= "Ed-Fi API $virtualDirectoryName"; type= "URL"; URI="/$virtualDirectoryName/api" })
+            } else {
+                $appUrlList.Add(@{ name="Copy this URL for configuring Ed-Fi v2.6 API clients"; type="URL"; URI="/$virtualDirectoryName/api"})
+            }
+        }
         # Set IIS Authentication settings
         if($b.iisAuthentication) {
             foreach($key in $b.iisAuthentication.Keys) {
                 Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/$key" -Name Enabled -Value $b.iisAuthentication.Item($key) -PSPath IIS:\ -Location "$applicationIISPath"
+                if (($key -like "windowsAuthentication") -and ($b.iisAuthentication.Item($key))) {
+#                    Set-WebConfigurationProperty  -PSPath IIS:\ -location "$applicationIISPath" -filter "system.webServer/security/authentication/windowsAuthentication/extendedProtection" -name "tokenChecking" -value "Allow"
+                    Add-WebConfigurationProperty  -PSPath IIS:\ -location "$applicationIISPath" -filter "system.webServer/security/authentication/windowsAuthentication/extendedProtection" -name "." -value @{name="HTTP/$DnsName"}
+                }
             }
         }
         #
@@ -151,40 +175,25 @@ Function Install-BaseEdFi {
     $apiDatabases = ($binaries | Where-Object {$_.name -eq "Api"}).databases;
     foreach($db in $apiDatabases | Where-Object {($_.InstallType -eq $InstallType) -or (!$_.InstallType)}) {
         $dbBackupFile = "$backupLocation\$($db.src).bak"
-        Restore-Database $db.src $db.dest $dbBackupFile $directories.dbPath
-    }
-
-    # 6. Setup Sandbox types
-
-    if($InstallType -eq "Sandbox") {
-        #Some sites like the Sandbox Admin need to be initiallized and then Web.Config updated.
-        if($InstallType -eq "Sandbox"){ Initialize-Url "$appsBaseUrl/SandboxAdmin" }
-
-        foreach ($b in $binaries | Where-Object {($_.type -eq "WebApp") -and (($_.requiredInInstallTypes.Contains($InstallType)) -or (!$_.requiredInInstallTypes))}) 
-        {
-            $appPhysicalPath = "$($directories.install)\$($b.name)\Web.Config"
-
-            if($b.webConfigTagPostInstall){ 
-                Set-TagInWebConfig $appPhysicalPath $b.webConfigTagPostInstall
-            }
-
-            if($b.webConfigAttributePostInstall){
-                Set-AttributeValueInWebConfig $appPhysicalPath $b.webConfigAttributePostInstall.xPath $b.webConfigAttributePostInstall.attribute $b.webConfigAttributePostInstall.value
-            }
+        try {
+            Restore-Database $db.src $db.dest $dbBackupFile $directories.dbPath
+        }
+        catch {
+            Write-Warning "Database restore failed. Message: $_"
         }
     }
 
-    # 7. Install Analytics Middle Tier to ODS table, won't have much effect on a Sandbox env but should still work
+    # 6. Install Analytics Middle Tier to ODS table, won't have much effect on a Sandbox env but should still work
     if ($odsName -ne "") {
         Install-AMT $EdFiDir $SuiteVersion $odsName
     }
     
-    # 8. Add URLs for all Apps to desktop
+    # 7. Add URLs for all Apps to desktop
     if (!(Get-Command "Add-DesktopAppLinks" -ErrorAction SilentlyContinue)) {
         Import-Module .\EdFiBinaryInstaller.psm1
     }
-    Add-DesktopAppLinks $appURLTable -Verbose:$VerbosePreference
-    Add-WebAppLinks -AppURIs $appURLTable -DnsName $DnsName -SolutionName "Ed-Fi Tools for ODS/API v$SuiteVersion" -Verbose:$VerbosePreference # -EdFiWebDir $SolutionWebRoot
+    Add-DesktopAppLinks $appUrlList -Verbose:$VerbosePreference
+    Add-WebAppLinks -AppURIs $appUrlList -DnsName $DnsName -SolutionName "Ed-Fi Tools for ODS/API v$SuiteVersion" -Verbose:$VerbosePreference # -EdFiWebDir $SolutionWebRoot
 
 }
 # Region: Web.Config Functions
@@ -316,6 +325,9 @@ Function Restore-Database {
     }
     $dbRestorePath = "$dataFilePath\$dbDestinationName.mdf"
     $logRestorePath = "$logFilePath\$dbDestinationName.ldf"
+    if ($(Try { Test-Path $dbRestorePath -ErrorAction SilentlyContinue } Catch { $false })) {
+        throw "Database: $dbDestinationName already exists at: $dbRestorePath"
+    }
     Write-Verbose "Restore database $dbSource as $dbDestinationName from file $dbBackupPath to $dbRestorePath with log $logRestorePath"
 
     $backupDeviceItem = New-Object Microsoft.SqlServer.Management.Smo.BackupDeviceItem -ArgumentList $dbBackupPath,'File'

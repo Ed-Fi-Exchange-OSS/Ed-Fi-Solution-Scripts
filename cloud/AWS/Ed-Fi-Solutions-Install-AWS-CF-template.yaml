@@ -15,7 +15,9 @@ Parameters:
       - All
       - ChronicAbsenteeism
       - ParentPortal
-      - None
+      - base
+      - base34
+      - base26
     ConstraintDescription: Must be name of an available solution
   1InstallType:
     Description: >-
@@ -109,9 +111,6 @@ Conditions:
   AllSolutions: !Equals 
     - !Ref 0SolutionName
     - All
-  NoSolutions: !Equals 
-    - !Ref 0SolutionName
-    - None
   DDNSCheck: !And 
     - !Not 
       - !Equals 
@@ -130,19 +129,19 @@ Mappings:
     us-east-1:
       AMILookupS3Bucket: winami1.lambda.edfi.org
       AWSLogsAcct: '127311923021'
-      AMI: ami-032c2c4b952586f02
+      AMI: ami-0eb7fbcc77e5e6ec6
     us-east-2:
       AMILookupS3Bucket: winami2.lambda.edfi.org
       AWSLogsAcct: 033677994240
-      AMI: ami-0239d3998515e9ed1
+      AMI: ami-0ca69a9d06da3835d
     us-west-1:
       AMILookupS3Bucket: winami3.lambda.edfi.org
       AWSLogsAcct: 027434742980
-      AMI: ami-08bcc13ad2c143073
+      AMI: ami-069a83c17d7d386f1
     us-west-2:
       AMILookupS3Bucket: winami4.lambda.edfi.org
       AWSLogsAcct: '797873946194'
-      AMI: ami-029e27fb2fc8ce9d8
+      AMI: ami-0afb7a78e89642197
   DynamicDNS:
     Dyn.com:
       DDNSUrl: 'https://members.dyndns.org/nic/update?hostname={DnsName}`&myip={IP}'
@@ -572,14 +571,11 @@ Resources:
             - !If 
               - AllSolutions
               - ''
-              - !If 
-                - NoSolutions
-                - ' -SolutionName "base" '
-                - !Join 
-                  - ''
-                  - - ' -SolutionName "'
-                    - !Ref 0SolutionName
-                    - '"'
+              - !Join 
+                - ''
+                - - ' -SolutionName "'
+                  - !Ref 0SolutionName
+                  - '"'
             - !Join 
               - ''
               - - ' -InstallType "'
