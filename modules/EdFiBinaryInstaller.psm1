@@ -406,7 +406,6 @@ function Install-AMT($EdFiDir="C:\Ed-Fi",$ODSVersion,$dbConnectionStr) {
     Set-Location $EdFiDir
 }
 function Install-DataImport($EdFiDir="C:\Ed-Fi",$GitPrefix) {
-    Write-Verbose "Installing Data Import"
     if (! $(Try { Test-Path "$EdFIDir\DataImport" } Catch { $false }) ) {
         Write-Host "Please download the Data Import ZIP file from: https://techdocs.ed-fi.org/download/attachments/64685133/EdFi.DataImport.Installation.1.0.1.zip?version=1&modificationDate=1576113640540&api=v2 and extract to $EdFiDir\DataImport"
         Write-Host "Or download and run the installer if you haven't already: https://techdocs.ed-fi.org/download/attachments/64685133/EdFi.DataImport.Installation.1.0.1.zip?version=1&modificationDate=1576113640540&api=v2"
@@ -415,5 +414,4 @@ function Install-DataImport($EdFiDir="C:\Ed-Fi",$GitPrefix) {
     Set-Location "$EdFiDir\DataImport"
     $repoURL="https://$GitPrefix@github.com/Ed-Fi-Alliance/Ed-Fi-DataImport"
     Copy-GitRepo $repoURL "$EdFIDir\DataImport"
-    Write-Verbose "Misssing binary installer for Data Import"
 }

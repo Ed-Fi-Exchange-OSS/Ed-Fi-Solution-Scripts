@@ -288,8 +288,7 @@ Write-Progress -Activity "Ed-FI Suite installed" -Status "80% Complete:" -Percen
 #
 # Install current version of Data Import
 Install-DataImport $EdFiDir $GitPrefix -Verbose:$VerbosePreference
-Write-Verbose "Data Import NOT installed"
-Write-Progress -Activity "Data Import not installed" -Status "80% Complete:" -PercentComplete 80;
+Write-Progress -Activity "Data Import" -Status "80% Complete:" -PercentComplete 80;
 #
 # Install all solutions listed
 # Please edit the "solutions" section of the config file as needed
