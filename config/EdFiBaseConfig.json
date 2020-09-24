@@ -11,6 +11,6 @@
         "version":"2.2.8"
     },
     "baseChocoPackages": "netfx-4.8-devpack dotnetcore-sdk nuget.commandline urlrewrite git win-acme",
-    "selectedChocoPackages": [{"package": "sql-server-management-studio"}],
+    "selectedChocoPackages": [{"package": "postgresql12","packageparams":"/password:{dbPassword}"},{"package": "pgadmin4"},{"package": "sql-server-management-studio"}],
     "optionalChocoPackages": "microsoft-edge googlechrome"
 }

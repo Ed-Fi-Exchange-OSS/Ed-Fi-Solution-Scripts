@@ -10,7 +10,7 @@ Parameters:
       all solutions available. Default: None to install only the base Suite 3
       ODS/API
     Type: String
-    Default: None
+    Default: base
     AllowedValues:
       - All
       - ChronicAbsenteeism

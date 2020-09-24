@@ -129,10 +129,6 @@ Function Install-BaseEdFi {
         if($b.iisAuthentication) {
             foreach($key in $b.iisAuthentication.Keys) {
                 Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/$key" -Name Enabled -Value $b.iisAuthentication.Item($key) -PSPath IIS:\ -Location "$applicationIISPath"
-                if (($key -like "windowsAuthentication") -and ($b.iisAuthentication.Item($key) -and ($DnsName -notlike "localhost"))) {
-#                    Set-WebConfigurationProperty  -PSPath IIS:\ -location "$applicationIISPath" -filter "system.webServer/security/authentication/windowsAuthentication/extendedProtection" -name "tokenChecking" -value "Allow"
-                    Add-WebConfigurationProperty  -PSPath IIS:\ -location "$applicationIISPath" -filter "system.webServer/security/authentication/windowsAuthentication/extendedProtection" -name "." -value @{name="HTTP/$DnsName"}
-                }
             }
         }
         #
