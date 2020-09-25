@@ -86,7 +86,7 @@
         url                    = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.ODS.AdminApp.Web/$SuiteVersion";
         urlVersionOverride     = @{
             v500 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Suite3.ODS.AdminApp.Web/2.0.0"
-            v340 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Suite3.ODS.AdminApp.Web/3.3.0"
+            v340 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.Suite3.ODS.AdminApp.Web/2.0.0"
             v320 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.ODS.AdminApp.Web/3.2.0.1"
             v250 = "https://www.myget.org/F/ed-fi/api/v2/package/EdFi.ODS.AdminApp.Web/2.5.1"
         }
