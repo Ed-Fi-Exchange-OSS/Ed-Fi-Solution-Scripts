@@ -1133,7 +1133,7 @@ function Add-DesktopAppLinks {
         Start-Process -Wait Dism.exe "/Online /Export-DefaultAppAssociations:$AppAssocFile" -RedirectStandardOutput "$LogPath\dism-exp-log.txt" -RedirectStandardError "$LogPath\dism-exp-err.txt"
         $AppAssociations=New-Object XML
         $AppAssociations.Load($AppAssocFile)
-        $AppSelections = $AppAssociations.SelectNodes("/DefaultAssociations/Association[@Identifier=""http"" or @Identifier=""https"" or @Identifier="".htm"" or @Identifier="".html"" or @Identifier="".url""]")
+        $AppSelections = $AppAssociations.SelectNodes("/DefaultAssociations/Association[@Identifier=""http"" or @Identifier=""https"" or @Identifier="".htm"" or @Identifier="".html""]")
         foreach ($node in $AppSelections) {
             $node.ProgID="MSEdgeHTM"
             $node.ApplicationName="Microsoft Edge"
