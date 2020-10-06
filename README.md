@@ -24,5 +24,5 @@ In order to quickly get a working solution environment, this code is meant to si
   * Run this interactively from a PowerShell Admin prompt. Works with a base Windows Server installation (vers 2016-2019) to configure all pre-reqs, tools, and current Ed-Fi Tech Suites 2 & 3
 * config\EdFiBaseConfig.json
   * Configuration details used by the installer, most defaults are appropriate for a new installation.
-* config\EdFiBaseConfig.json
-  * Specifies the details used to install a particular solution.
+* config\EdFiSolutionsConfig.json
+  * Lists the solutions and specifies the details used to install a particular solution.
