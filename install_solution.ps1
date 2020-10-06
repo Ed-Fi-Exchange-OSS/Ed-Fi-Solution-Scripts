@@ -14,7 +14,6 @@ param(
     [string] $DDNSUsername,
     [string] $DDNSPassword,
     [string] $iisSiteName,
-    [string] $dbPassword,
     [string] $InstallType,
     [string] $SolutionName,
     [string] $EdFiDir,
@@ -58,6 +57,10 @@ if ($noui) {
 #
 # Some of these modules functions may need to be embedded directly until we can fetch the additional files from git
 #
+Import-Module "$PSScriptRoot\modules\edfi-installconfig"
+Import-Module "$PSScriptRoot\modules\edfi-netsetup"
+Import-Module "$PSScriptRoot\modules\edfi-websetup"
+Import-Module "$PSScriptRoot\modules\edfi-dbsrvsetup"
 Import-Module "$PSScriptRoot\modules\EdFiSolutionInstaller"
 Import-Module "$PSScriptRoot\modules\EdFiBinaryInstaller"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
@@ -135,11 +138,11 @@ $iisConfig=@{
     defaultSiteName="Default Web Site";
     SiteName="Ed-Fi";
     defaultApplicationPool = "DefaultAppPool";
-    applicationPool = "DefaultAppPool";
-    integratedSecurityUser = "IIS APPPOOL\DefaultAppPool" 
+    applicationPool = "EdFiAppPool";
+    integratedSecurityUser = "IIS APPPOOL\EdFiAppPool";
+    defaultSecurityUser = "IIS APPPOOL\DefaultAppPool" 
 }
 $iisConfig.SiteName = Get-ConfigParam $iisSiteName $cfg.iisSiteName "Default Web Site"
-$dbPassword = Get-ConfigParam $dbPassword $cfg.dbPassword "EdfiUs3r"
 #
 # Install type is typically Staging for Populated Template ODS or Prodution for Minimal Template
 $InstallType = Get-ConfigParam $InstallType $cfg.InstallType "Demo"
@@ -164,7 +167,7 @@ Write-Progress -Activity "Computer name set. Installing required Windows Feature
 # Enable Windows features - Must haves
 Enable-RequiredWindowsFeatures -Verbose:$VerbosePreference
 Write-Verbose "Windows Features enabled"
-Write-Progress -Activity "Windows Features Enabled.  Installing nuget v2.8.5.201 ..." -Status "10% Complete:" -PercentComplete 10;
+Write-Progress -Activity "Windows Features Enabled.  Installing nuget v2.8.5.201 ..." -Status "5% Complete:" -PercentComplete 5;
 
 #
 # Install all core dependencies and important tools with Chocolatey Package Manager
@@ -172,13 +175,40 @@ Write-Progress -Activity "Windows Features Enabled.  Installing nuget v2.8.5.201
 $tooVerbose=Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Verbose:$VerbosePreference
 Write-Verbose "$tooVerbose"
 Write-Verbose "Nuget package provider installed"
-Write-Progress -Activity "Nuget package installed. Installing .NET Core from Chocolatey..." -Status "15% Complete:" -PercentComplete 15;
-Install-Choco $cfg.dotnetcorePackage.package -Version $cfg.dotnetcorePackage.version -LogPath $LogPath -Verbose:$VerbosePreference
-Write-Verbose "Installed Package: $($cfg.dotnetcorePackage.package) Version: $($cfg.dotnetcorePackage.version)"
-Write-Progress -Activity ".NET Core package installed. Installing essential software packages from Chocolatey..." -Status "20% Complete:" -PercentComplete 20;
-Install-Choco $cfg.baseChocoPackages -LogPath $LogPath -Verbose:$VerbosePreference
-Write-Verbose "Installed Packages $($cfg.baseChocoPackages)"
-Write-Progress -Activity "Essential software packages installed. Discovering IP address and updating Dynamic DNS (if enabled)" -Status "30% Complete:" -PercentComplete 30;
+#
+#
+# Get the list of Solutions from the config file
+#
+Write-Progress -Activity "Nuget package installed. Discovering solutions and dependencies..." -Status "6% Complete:" -PercentComplete 6;
+#
+$solutionsInstall = $solcfg.solutions | Where-Object {([string]::IsNullOrEmpty($SolutionName) -and ($_.name -NotLike "base*")) -or ($_.name -match $SolutionName)}
+Write-Verbose "Solution(s) chosen: $solutionsInstall"
+if (($null -eq $solutionsInstall) -or ($solutionsInstall.Count -eq 0)) {
+    if ($noui) {
+        Write-Verbose "No solutions found matching: $SolutionName `n Check your configuration file and verify the name given for -SolutionName. `n Choosing base install and continuing."
+        $SolutionName="base"
+        $solutionsInstall = $solcfg.solutions | Where-Object {$_.name -match $SolutionName}    
+        if ($null -eq $solutionsInstall) {
+            throw "No Solutions Configured! Installation cannot continue please make sure your solutions configuration file is available."
+        }
+    }
+    else {
+        throw "Solution: $SolutionName not found!"
+    }
+}
+# Select versions required by listed solutions
+$EdFiVersions = $solutionsInstall | ForEach-Object {$_.EdFiVersion} | Sort-Object -Unique
+#
+$preInstallPackages = Select-InstallPackages -globalPackages $cfg.preInstallPackages -solutions $solutionsInstall -sequence "pre"
+# Skipping base config file since we will use/install SQL Server either way
+# $dbInstallPackages = Get-ConfigParam $pkg.dbInstallPackages $cfg.dbInstallPackages "{`"package`": `"sql-server-express`", `"installargs`": `"/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=$SQLINST /INSTANCENAME=$SQLINST /ConfigurationFile=C:\Ed-Fi\Downloads\SQLExprConfig.ini`"}"
+# $dbInstallPackages = Select-InstallPackages -globalPackages $dbInstallPackages -solutions $solutionsInstall -sequence "db"
+$dbInstallPackages = Select-InstallPackages -globalPackages "" -solutions $solutionsInstall -sequence "db"
+$postInstallPackages = Select-InstallPackages -globalPackages $cfg.postInstallPackages -solutions $solutionsInstall -sequence "post"
+Write-Progress -Activity "Installing prereqisite software packages from Chocolatey..." -Status "7% Complete:" -PercentComplete 7;
+Install-ChocolateyPackages -packages $preInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
+Write-Verbose "Installed Packages $preInstallPackages"
+Write-Progress -Activity "Essential software packages installed. Discovering IP address and updating Dynamic DNS (if enabled)" -Status "15% Complete:" -PercentComplete 15;
 # Configure public DNS hostname and use it to get Lets Encrypt SSL Cert 
 $hostIP=Get-ExternalIP -Verbose:$VerbosePreference
 Write-Verbose "Host IP: $hostIP"
@@ -202,37 +232,20 @@ else {
     Write-Verbose "No proper DNS hostname given, setting DnsName to localhost"
     $DnsName = "localhost"
 }
-Write-Progress -Activity "IP Address assigned to Dynamic DNS. Installing selected packges from Chocolatey..." -Status "35% Complete:" -PercentComplete 35;
+Write-Progress -Activity "IP Address assigned to Dynamic DNS. Installing database server packges from Chocolatey..." -Status "20% Complete:" -PercentComplete 20;
 #
-# Now install choice dependencies as listed in config, e.g. Postgres, and SQL Server Management Studio (SSMS)
-# Note that SSMS is required if installing SQL Express
-if ($null -ne $cfg.selectedChocoPackages) { 
-    Install-ChocolateyPackages $cfg.selectedChocoPackages -LogPath $LogPath -Verbose:$VerbosePreference
-    if ($cfg.selectedChocoPackages -isnot [array]) {
-        $PGSQLInstalled = ([string]$cfg.selectedChocoPackages -like '*postgresql*')
-    }
-    else {
-        foreach ($pkg in $cfg.selectedChocoPackages) {
-            $PGSQLInstalled = $PGSQLInstalled -or ($pkg.package -like "postgres")
-        }
-    }
-    if ($PGSQLInstalled) {
-        Initialize-Postgresql -Verbose:$VerbosePreference
-        Write-Verbose "PostgreSQL installed and configured for use."
-    }
+# Now install database dependencies as listed in config, e.g. Postgres, and SQL Server
+# Note that SSMS is expected if installing SQL Express
+# 
+Install-ChocolateyPackages -packages $dbInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
+foreach ($pkg in $dbInstallPackages) {
+    $PGSQLInstalled = $PGSQLInstalled -or ($pkg.package -like "*postgres*")
 }
-Write-Progress -Activity "Selected software packages installed.  Installing optional packages from Chocolatey..." -Status "45% Complete:" -PercentComplete 45;
-#
-# Install any additional user tools
-#
-if (!([string]::IsNullOrEmpty($cfg.optionalChocoPackages))) { 
-    Install-Choco $cfg.optionalChocoPackages -LogPath $LogPath -Verbose:$VerbosePreference
-    Write-Verbose "Installed packages: $($cfg.optionalChocoPackages)"
-    if ([string]$cfg.optionalChocoPackages -like '*microsoft-edge*') {
-        Update-MSEdgeAssociations -Verbose:$VerbosePreference
-    }
+if ($PGSQLInstalled) {
+    Initialize-Postgresql -Verbose:$VerbosePreference
+    Write-Verbose "PostgreSQL installed and configured for use."
 }
-Write-Progress -Activity "Optional software packages installed. Launching SQL Server installation..." -Status "50% Complete:" -PercentComplete 50;
+Write-Progress -Activity "Database software packages installed.  Installing SQL Server if needed..." -Status "30% Complete:" -PercentComplete 30;
 #
 # Check and install SQL server if needed
 $SQLINST = Install-MSSQLserverExpress -FilePath $downloadPath -MSSQLEURL $MSSQLEURL -SQLINST $SQLINST -Verbose:$VerbosePreference
@@ -244,14 +257,14 @@ if ($InstallType -like "Demo") {
     # !!!!!
     Set-WeakPasswordComplexity -FilePath $downloadPath  -Verbose:$VerbosePreference
 }
-Write-Progress -Activity "SQL Server installed and configured" -Status "60% Complete:" -PercentComplete 60;
+Write-Progress -Activity "SQL Server installed and configured" -Status "40% Complete:" -PercentComplete 40;
 #
 # Get SSL working on IIS including Self-signed and LE certs, will also setup new IIS Site and App Pool if specified.
 # However, this returns the Site Name that was used (whether specified or default in case of trouble), so be sure and store that for later use.
 $iisConfig.SiteName = Enable-WebServerSSL -InstallPath $EdFiDir -HostDNS $DnsName -AdminEmail $AdminEmail -iisConfig $iisConfig -Verbose:$VerbosePreference
 Write-Verbose "IIS Site Name set to: $($iisConfig.SiteName)"
 Write-Verbose "SSL configuration for IIS complete"
-Write-Progress -Activity "IIS Configured for SSL" -Status "65% Complete:" -PercentComplete 65;
+Write-Progress -Activity "IIS Configured for SSL" -Status "50% Complete:" -PercentComplete 50;
 #
 # Add IIS special integrated user to SQL Server login along with those in Users group for Demo mode
 Add-SQLIntegratedSecurityUser -UserName $iisConfig.integratedSecurityUser -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
@@ -262,40 +275,47 @@ if ($InstallType -like "Demo") {
         Update-SQLIntegratedSecurityUser -UserName $usr -ComputerName $NewComputerName -PreviousComputerName $oldComputerName -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
     }
 }
-Write-Progress -Activity "Integrated Security configured" -Status "70% Complete:" -PercentComplete 70;
+Write-Progress -Activity "Integrated Security configured" -Status "55% Complete:" -PercentComplete 55;
 #
-# Get the list of Solutions from the config file
-
-$solutionsInstall = $solcfg.solutions | Where-Object {([string]::IsNullOrEmpty($SolutionName) -and ($_.name -NotLike "base*")) -or ($_.name -match $SolutionName)}
-Write-Verbose "Solutions: $solutionsInstall"
-if (($null -eq $solutionsInstall) -or ($solutionsInstall.Count -eq 0)) {
-    Write-Verbose "No solutions found matching: $SolutionName `n Check your configuration file and verify the name given for -SolutionName."
-    $SolutionName="base"
-    $solutionsInstall = $solcfg.solutions | Where-Object {$_.name -match $SolutionName}
-}
-if ($null -eq $solutionsInstall) {
-    throw "No Solutions Configured! Installation cannot continue please make sure your solutions configuration file is available."
-}
-# Select versions required by listed solutions
-$EdFiVersions = $solutionsInstall | ForEach-Object {$_.EdFiVersion} | Sort-Object -Unique
 # Now get needed versions of the ODS/API, Admin App, AMT, and Data Import installed
 foreach ($ver in $EdFiVersions) {
     Write-Verbose "Installing Ed-Fi Suite with v$ver of ODS-API"
     Install-BaseEdFi $InstallType $ver $DnsName $EdFiDir $iisConfig -Verbose:$VerbosePreference
     Write-Verbose "Completed Ed-Fi Suite v$ver installation"
 }
-Write-Progress -Activity "Ed-FI Suite installed" -Status "80% Complete:" -PercentComplete 80;
+Write-Progress -Activity "Ed-FI Suite installed" -Status "60% Complete:" -PercentComplete 60;
 #
 # Install current version of Data Import
 Install-DataImport $EdFiDir $GitPrefix -Verbose:$VerbosePreference
-Write-Progress -Activity "Data Import" -Status "80% Complete:" -PercentComplete 80;
+Write-Progress -Activity "Data Import" -Status "70% Complete:" -PercentComplete 70;
 #
 # Install all solutions listed
 # Please edit the "solutions" section of the config file as needed
 # Refer to Configuration guide:
 Install-Solutions -Solutions $solutionsInstall -DnsName $DnsName -GitPrefix $GitPrefix -DownloadPath $downloadPath -EdFiDir $EdFiDir -WebPath $SolutionWebRoot -Verbose:$VerbosePreference
 #
-Write-Progress -Activity "Solutions installed" -Status "90% Complete:" -PercentComplete 90;
+Write-Progress -Activity "Solutions installed" -Status "80% Complete:" -PercentComplete 80;
+#
+# Install any additional tools
+#
+Install-ChocolateyPackages -packages $postInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
+#
+# Look for MS Edge in the install to switch to it since IE is unworkable on Server
+#
+$MSEdgeInstalled = $false
+foreach ($pkg in $preInstallPackages) {
+    $MSEdgeInstalled = $MSEdgeInstalled -or ($pkg.package -like "*microsoft-edge*")
+}
+foreach ($pkg in $postInstallPackages) {
+    $MSEdgeInstalled = $MSEdgeInstalled -or ($pkg.package -like "*microsoft-edge*")
+}
+if ($MSEdgeInstalled) {
+    Write-Verbose "Found MS Edge, will use instead of IE"
+    Update-MSEdgeAssociations -Verbose:$VerbosePreference
+}
+#
+Write-Progress -Activity "Post-solution-install/optional software packages installed." -Status "90% Complete:" -PercentComplete 90;
+#
 Write-Verbose "Building local web page for IIS on $SolutionWebRoot"
 Publish-WebSite -SolutionWebDir $SolutionWebRoot -VirtualDirectoryName "EdFi" -AppName $SolutionsAppName -iisConfig $iisConfig -Verbose:$VerbosePreference
 $LocalAppLinks = @(

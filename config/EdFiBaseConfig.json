@@ -6,11 +6,7 @@
     "SolutionsAppName": "EdFiSolutions",
     "iisSiteName": "Ed-Fi",
     "MSSQLINST": "MSSQLSERVER",
-    "dotnetcorePackage": {
-        "package":"dotnetcore-windowshosting",
-        "version":"2.2.8"
-    },
-    "baseChocoPackages": "netfx-4.8-devpack dotnetcore-sdk nuget.commandline urlrewrite git win-acme",
-    "selectedChocoPackages": [{"package": "postgresql12","packageparams":"/password:{dbPassword}"},{"package": "pgadmin4"},{"package": "sql-server-management-studio"}],
-    "optionalChocoPackages": "microsoft-edge googlechrome"
+    "preInstallPackages": "netfx-4.8-devpack dotnetcore-sdk nuget.commandline urlrewrite git win-acme microsoft-edge",
+    "dbInstallPackages": [{"package": "sql-server-express", "installargs": "/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=$SQLINST /INSTANCENAME=$SQLINST /ConfigurationFile=$InstINI"}],
+    "postInstallPackages": "sql-server-management-studio googlechrome"
 }
