@@ -7,7 +7,6 @@
             "postInstallPackages": "",
             "repo": "https://github.com/Ed-Fi-Exchange-OSS/Chronic-Absentee-Reports-Tableau",
             "installSubPath": "ChronAbs-Tableau",
-            "installer": "",
             "EdFiVersion": "2.6.0",
             "appLinks": [
                 {"type": "File", "name": "ChronAbs Attendance YTD Report", "URI": "TableauDesktop\\Attendance YTD\\Attendance YTD.twbx" },
@@ -19,13 +18,13 @@
             ]
         },
         {   "name": "ParentPortal",
-            "description": "Early Access: The Parent Engagement Portal built on NodeJS",
+            "description": "The Parent Engagement Portal built on NodeJS",
             "preInstallPackages": "nodejs visualstudio2019community",
             "postInstallPackages": "",
-            "repo": "https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-X-ParentPortal",
+            "repo": "https://github.com/Ed-Fi-Exchange-OSS/ParentPortal",
             "installSubPath": "ParentPortal",
             "installer": "",
-            "EdFiVersion": "3.4.0",
+            "EdFiVersion": "3.1.1",
             "appLinks": [
                 {"type": "File", "name": "Open ParentPortal Project in Visual Studio Community", "URI": "Student1.ParentPortal.sln" },
                 {"type": "URL", "name": "Ed-Fi Solution Parent Portal", "URI": "/Student1.ParentPortal.Web/" },
@@ -46,7 +45,7 @@
             ]
         },
         {   "name": "base",
-            "description": "Base Ed-Fi Suite 3 v5.0.0",
+            "description": "Base Ed-Fi Suite 3 with ODS/API, Analytics Mid Tier, and Admin App",
             "preInstallPackages": "",
             "postInstallPackages": "",
             "repo": "",
@@ -57,40 +56,6 @@
             "appLinks": [
                 {"type": "URL", "name": "Admin App", "URI": "/AdminApp" },
                 {"type": "URL", "name": "API URL", "URI": "/EdFiOdsWebApi" }
-            ]
-        },
-        {   "name": "base34",
-            "description": "Base Ed-Fi Suite 3.4",
-            "preInstallPackages": "",
-            "postInstallPackages": "",
-            "repo": "",
-            "archive": "",
-            "installSubPath": ".",
-            "installer": "",
-            "EdFiVersion": "3.4.0",
-            "appLinks": [
-                {"type": "File", "name": "Application log files", "URI": "logs" },
-                {"type": "URL", "name": "Installer on GitHub", "URI": "https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts" },
-                {"type": "URL", "name": "Ed-Fi Starter Kits", "URI": "https://techdocs.ed-fi.org/display/SK/Starter+Kits" },
-                {"type": "URL", "name": "Ed-Fi Home", "URI": "https://www.ed-fi.org" },
-                {"type": "URL", "name": "Ed-Fi TechDocs", "URI": "https://techdocs.ed-fi.org" }
-            ]
-        },
-        {   "name": "base26",
-            "description": "Base Ed-Fi Suite 2.6",
-            "preInstallPackages": "",
-            "postInstallPackages": "",
-            "repo": "",
-            "archive": "",
-            "installSubPath": ".",
-            "installer": "",
-            "EdFiVersion": "2.6.0",
-            "appLinks": [
-                {"type": "File", "name": "Application log files", "URI": "logs" },
-                {"type": "URL", "name": "Installer on GitHub", "URI": "https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts" },
-                {"type": "URL", "name": "Ed-Fi Starter Kits", "URI": "https://techdocs.ed-fi.org/display/SK/Starter+Kits" },
-                {"type": "URL", "name": "Ed-Fi Home", "URI": "https://www.ed-fi.org" },
-                {"type": "URL", "name": "Ed-Fi TechDocs", "URI": "https://techdocs.ed-fi.org" }
             ]
         }
     ]
