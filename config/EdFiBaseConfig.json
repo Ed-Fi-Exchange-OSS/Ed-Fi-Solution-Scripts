@@ -7,6 +7,6 @@
     "iisSiteName": "Ed-Fi",
     "MSSQLINST": "MSSQLSERVER",
     "preInstallPackages": "netfx-4.8-devpack dotnetcore-sdk nuget.commandline urlrewrite git win-acme microsoft-edge",
-    "dbInstallPackages": [{"package": "sql-server-express", "installargs": "/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=$SQLINST /INSTANCENAME=$SQLINST /ConfigurationFile=$InstINI"}],
+    "dbInstallPackages": [{"package": "sql-server-express", "installargs": "/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=MSSQLSERVER /INSTANCENAME=MSSQLSERVER /ConfigurationFile='C:\\Ed-Fi\\Downloads\\SQLExprConfig.ini'"}],
     "postInstallPackages": "sql-server-management-studio googlechrome"
 }
