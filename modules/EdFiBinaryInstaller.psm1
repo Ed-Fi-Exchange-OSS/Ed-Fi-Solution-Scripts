@@ -121,8 +121,6 @@ Function Install-BaseEdFi {
         else {
             if ($versionNum -ne "v260") {
                 $appUrlList.Add(@{ name= "Ed-Fi API $virtualDirectoryName"; type= "URL"; URI="/$virtualDirectoryName/api" })
-            } else {
-                $appUrlList.Add(@{ name="Open Admin App - ODS Instance - to copy URL for Ed-Fi v2.6 API clients"; type="URL"; URI="/$virtualDirectoryName/AdminApp"})
             }
         }
         # Set IIS Authentication settings
