@@ -2,7 +2,7 @@
     "solutions": [
         {   "name": "ChronicAbsenteeism",
             "description": "Chronic Absenteeism visualizations built with Ed-Fi connected Tableau reports",
-            "preInstallPackages": [{"package":"dotnetcore-windowshosting","version":"2.2.8"},{"package":"tableau-desktop"}],
+            "preInstallPackages": "tableau-desktop",
             "dbInstallPackages": "",
             "postInstallPackages": "",
             "repo": "https://github.com/Ed-Fi-Exchange-OSS/Chronic-Absentee-Reports-Tableau",

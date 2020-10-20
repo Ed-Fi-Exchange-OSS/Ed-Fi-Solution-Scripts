@@ -1,22 +1,18 @@
 {
     "installType": "Staging",
+    "InstallType": "Demo",
     "EdFiDir": "C:\\Ed-Fi",
     "DownloadPath": "C:\\Ed-Fi\\Downloads",
     "SolutionWebRoot": "C:\\Ed-Fi\\www",
+    "SolutionsAppName": "EdFiSolutions",
+    "iisSiteName": "Ed-Fi",
+    "preInstallPackages": "netfx-4.8-devpack dotnetcore-sdk nuget.commandline urlrewrite git win-acme microsoft-edge",
+    "dbInstallPackages": [{"package": "sql-server-express", "installargs": "/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=MSSQLSERVER /INSTANCENAME=MSSQLSERVER /ConfigurationFile='C:\\Ed-Fi\\Downloads\\SQLExprConfig.ini'"},{"package": "postgresql12","packageparams":"/password:Learning4Fun!"}],
+    "postInstallPackages": "sql-server-management-studio pgadmin4 googlechrome",
     "DnsName": "ed-fi-demo.example.org",
     "AdminEmail": "admin@example.org",
     "DDNSUrl": "https://members.dyndns.org/nic/update?hostname={DnsName}&myip={IP}",
     "DDNSUsername": "myLogin",
     "DDNSPassword": "myPassword",
-    "GitPAT": "myGitHubPersonalAccessTokenString",
-    "SolutionsAppName": "EdFiSolutions",
-    "MSSQLEURL": "https://download.microsoft.com/download/8/4/c/84c6c430-e0f5-476d-bf43-eaaa222a72e0/SQLEXPR_x64_ENU.exe",
-    "MSSQLINST": "MSSQLSERVER",
-    "dotnetcorePackage": {
-        "package":"dotnetcore-windowshosting",
-        "version":"2.2.8"
-    },
-    "baseChocoPackages": "netfx-4.8-devpack dotnetcore-sdk nuget.commandline urlrewrite git win-acme",
-    "selectedChocoPackages": "postgresql sql-server-management-studio",
-    "optionalChocoPackages": "microsoft-edge firefox"
+    "GitPAT": "myGitHubPersonalAccessTokenString"
 }
