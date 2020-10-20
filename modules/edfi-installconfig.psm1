@@ -37,7 +37,7 @@ function Enable-RequiredWindowsFeatures {
 function Install-ChocolateyPackages {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()] $Packages,
+        $Packages,
         [string] $InstallPath = "C:\Ed-Fi",
         [string] $LogPath = "C:\Ed-Fi\Logs"
     )
@@ -45,7 +45,8 @@ function Install-ChocolateyPackages {
         Write-Verbose "Package list empty!"
         return
     }
-    if ($Packages -isnot [array]) {
+    if ($Packages -is [string]) {
+        Write-Verbose "Installing simple (string) list of packages"
         Install-Choco -Packages $Packages -InstallPath $InstallPath -LogPath $LogPath
     }
     else {
@@ -54,24 +55,37 @@ function Install-ChocolateyPackages {
             return
         }
         $versionedPackages = $Packages | Where-Object {$null -ne $_.version}
-        $arglistPackages = $Packages | Where-Object {($null -eq $_.version) -and ($null -ne $_.installargs)}
-        $otherPackages = $Packages | Where-Object {($null -eq $_.version) -and ($null -eq $_.installargs)}
+        $arglistPackages = $Packages | Where-Object {($null -eq $_.version) -and (($null -ne $_.installargs) -or ($null -ne $_.packageparams))}
+        $otherPackages = $Packages | Where-Object {($null -eq $_.version) -and ($null -eq $_.installargs) -and ($null -eq $_.packageparams)}
         $packageList = ""
         foreach ($pkgItem in $otherPackages) {
             $packageList+="$($pkgItem.package) "
         }
+        $pathParams=@{InstallPath=$InstallPath;LogPath=$LogPath}
+        Write-Verbose "Installing versioned packages first:"
         foreach ($pkgItem in $versionedPackages) {
+            $pkgparams=@{Packages=$pkgItem.package; Version=$pkgItem.version}
             if ([string]::IsNullOrEmpty($pkgItem.installargs)) {
-                Install-Choco -Packages $pkgItem.package -Version $pkgItem.version -InstallPath $InstallPath -LogPath $LogPath
+                $pkgparams.Add('InstallArguments',$pkgItem.installargs)
             }
-            else {
-                Install-Choco -Packages $pkgItem.package -Version $pkgItem.version -InstallArguments $pkgItem.installargs -InstallPath $InstallPath -LogPath $LogPath
+            if ([string]::IsNullOrEmpty($pkgItem.packageparams)) {
+                $pkgparams.Add('PackageParams',$pkgItem.packageparams)
             }
+            Install-Choco @pkgparams @pathParams
         }
+        Write-Verbose "Arg or param list packages next:"
         foreach ($pkgItem in $arglistPackages) {
-            Install-Choco -Packages $pkgItem.package -Version $pkgItem.version -InstallArguments $pkgItem.installargs -InstallPath $InstallPath -LogPath $LogPath
+            $pkgparams=@{Packages=$pkgItem.package}
+            if ([string]::IsNullOrEmpty($pkgItem.installargs)) {
+                $pkgparams.Add('InstallArguments',$pkgItem.installargs)
+            }
+            if ([string]::IsNullOrEmpty($pkgItem.packageparams)) {
+                $pkgparams.Add('PackageParams',$pkgItem.packageparams)
+            }
+            Install-Choco @pkgparams @pathParams
         }
-        Install-Choco -Packages $packageList -InstallPath $InstallPath -LogPath $LogPath
+        Write-Verbose "Installing remaining package list:"
+        Install-Choco -Packages $packageList @pathParams
     }
 }
 function Install-Choco {
@@ -80,6 +94,7 @@ function Install-Choco {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $Packages,
         [string] $Version,
         [string] $InstallArguments,
+        [string] $PackageParams,
         [string] $Source,
         [string] $InstallPath = "C:\Ed-Fi",
         [string] $LogPath = "C:\Ed-Fi\Logs"
@@ -108,7 +123,7 @@ function Install-Choco {
     $logFile="$LogPath\"
     $chocArgs=[System.Collections.Generic.List[string]]::new()
     # These special cases will only work with one package at a time
-    if ([string]::IsNullOrEmpty($InstallArguments) -and [string]::IsNullOrEmpty($Version)) {
+    if ([string]::IsNullOrEmpty($PackageParams) -and [string]::IsNullOrEmpty($InstallArguments) -and [string]::IsNullOrEmpty($Version)) {
         $chocArgs.Add("upgrade")
         $chocArgs.Add($Packages)
         $logFile+="choco-upgrade-"
@@ -119,6 +134,9 @@ function Install-Choco {
         $chocArgs.Add($Packages)
         $logFile+="choco-install-"
         $errFile+="choco-install-"
+        if ($PackageParams) {
+            $chocArgs.Add("--params `"'$PackageParams'`"")
+        }
         if ($InstallArguments) {
             $chocArgs.Add("--installarguments `"'$InstallArguments'`"")
         }

@@ -211,33 +211,46 @@ function Add-DesktopAppLinks {
         $packages=[System.Collections.Generic.List[PSCustomObject]]::new()
         # Determine whether global packages are an array of hashtables or just a space-separated string and convert or add
         if ($null -ne $globalPackages) {
-            if ($globalPackages -isnot [array]) {
-                $pkgList=$globalPackages -split " "
-                foreach ($pkg in $pkgList) {
-                    $packages.Add([PSCustomObject]@{package="$pkg"})
-                }
-            }
-            else {
-                $packages.AddRange($globalPackages)
-            }    
-        }
-        foreach ($sol in $solutions| Where-Object {$_.name -notlike "base*"} ) {
-            $pkgs = [System.Collections.Generic.List[PSCustomObject]]$sol["${sequence}InstallPackages"]
-            switch ($sequence) {
-                "pre" { $pkgs = [System.Collections.Generic.List[PSCustomObject]]$sol.preInstallPackages }
-                "post" { $pkgs = [System.Collections.Generic.List[PSCustomObject]]$sol.postInstallPackages }
-                "db" { $pkgs = [System.Collections.Generic.List[PSCustomObject]]$sol.dbInstallPackages }
-            }
-            if ($null -ne $pkgs) {
-                if ($pkgs -isnot [array]) {
-                    $pkgList=$pkgs -split " "
-                    foreach ($pkg in $pkgs) {
+            if ($globalPackages -is [string]) {
+                if (! [string]::IsNullOrEmpty($globalPackages)) {
+                    $pkgList=$globalPackages -split " "
+                    foreach ($pkg in $pkgList) {
                         $packages.Add([PSCustomObject]@{package="$pkg"})
                     }
                 }
-                else {
-                    $packages.AddRange($pkgs)
-                }    
+            }
+            else {
+                if ($globalPackages -is [System.Collections.Generic.List[PSCustomObject]]) {
+                    $packages.AddRange($globalPackages)
+                }
+                elseif ($globalPackages -is [array]) {
+                    foreach ($pkg in $globalPackages) {
+                        $packages.Add([PSCustomObject]$pkg)
+                    }
+                }
+            }    
+        }
+        foreach ($sol in $solutions| Where-Object {$_.name -notlike "base*"} ) {
+            switch ($sequence) {
+                "pre" { $solPackages = $sol.preInstallPackages }
+                "post" { $solPackages = $sol.postInstallPackages }
+                "db" { $solPackages = $sol.dbInstallPackages }
+            }
+            if ($solPackages -is [string]) {
+                if (! [string]::IsNullOrEmpty($solPackages)) {
+                    $pkgList=$solPackages -split " "
+                    foreach ($pkg in $pkgList) {
+                        $packages.Add([PSCustomObject]@{package="$pkg"})
+                    }
+                }
+            }
+            elseif ($solPackages -is [array]) {
+                foreach ($pkg in $solPackages) {
+                    $packages.Add([PSCustomObject]$pkg)
+                }
+            }
+            elseif ($solPackages -is [System.Collections.Generic.List[PSCustomObject]]) {
+                $packages.AddRange($solPackages)
             }
         }
         if ($packages.Count -gt 0) {

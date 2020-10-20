@@ -199,15 +199,37 @@ if (($null -eq $solutionsInstall) -or ($solutionsInstall.Count -eq 0)) {
 # Select versions required by listed solutions
 $EdFiVersions = $solutionsInstall | ForEach-Object {$_.EdFiVersion} | Sort-Object -Unique
 #
-$preInstallPackages = Select-InstallPackages -globalPackages $cfg.preInstallPackages -solutions $solutionsInstall -sequence "pre"
+$preInstallPackages = Select-InstallPackages -globalPackages $cfg.preInstallPackages -solutions $solutionsInstall -sequence "pre" -Verbose:$VerbosePreference
 # Skipping base config file since we will use/install SQL Server either way
 # $dbInstallPackages = Get-ConfigParam $pkg.dbInstallPackages $cfg.dbInstallPackages "{`"package`": `"sql-server-express`", `"installargs`": `"/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=$SQLINST /INSTANCENAME=$SQLINST /ConfigurationFile=C:\Ed-Fi\Downloads\SQLExprConfig.ini`"}"
 # $dbInstallPackages = Select-InstallPackages -globalPackages $dbInstallPackages -solutions $solutionsInstall -sequence "db"
-$dbInstallPackages = Select-InstallPackages -globalPackages "" -solutions $solutionsInstall -sequence "db"
-$postInstallPackages = Select-InstallPackages -globalPackages $cfg.postInstallPackages -solutions $solutionsInstall -sequence "post"
+$dbInstallPackages = Select-InstallPackages -globalPackages "" -solutions $solutionsInstall -sequence "db" -Verbose:$VerbosePreference
+$postInstallPackages = Select-InstallPackages -globalPackages $cfg.postInstallPackages -solutions $solutionsInstall -sequence "post" -Verbose:$VerbosePreference
+if ($null -ne $preInstallPackages) {
+    Write-Verbose "Pre-Install Packages:"
+    foreach ($pkg in $preInstallPackages) { Write-Verbose $pkg }
+}
+else {
+    Write-Verbose "No pre-install packages selected!"
+}
+if ($null -ne $dbInstallPackages) {
+    Write-Verbose "Db Install Packages:"
+    foreach ($pkg in $dbInstallPackages) { Write-Verbose $pkg }
+}
+else {
+    Write-Verbose "No db install packages selected!"
+}
+if ($null -ne $postInstallPackages) {
+    Write-Verbose "Post-Install Packages:"
+    foreach ($pkg in $postInstallPackages) { Write-Verbose $pkg }
+}
+else {
+    Write-Verbose "No post-install packages selected!"
+}
+# 
 Write-Progress -Activity "Installing prereqisite software packages from Chocolatey..." -Status "7% Complete:" -PercentComplete 7;
 Install-ChocolateyPackages -packages $preInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
-Write-Verbose "Installed Packages $preInstallPackages"
+Write-Verbose "Installed Pre-installation Packages: $preInstallPackages"
 Write-Progress -Activity "Essential software packages installed. Discovering IP address and updating Dynamic DNS (if enabled)" -Status "15% Complete:" -PercentComplete 15;
 # Configure public DNS hostname and use it to get Lets Encrypt SSL Cert 
 $hostIP=Get-ExternalIP -Verbose:$VerbosePreference
