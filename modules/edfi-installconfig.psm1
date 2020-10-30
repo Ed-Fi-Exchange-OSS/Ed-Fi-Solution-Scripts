@@ -25,12 +25,17 @@ function Get-ConfigParam {
 }
 function Enable-RequiredWindowsFeatures {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
-    param ()
-    $tooVerbose=Add-WindowsCapability -Online -Name OpenSSH.Client
+    param (
+        [string] $LogPath = "C:\Ed-Fi\Logs\install"
+    )
+    if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
+    }    
+    $tooVerbose=Add-WindowsCapability -Online -Name OpenSSH.Client -LogPath "$LogPath\feature-openssh.txt"
     Write-Verbose "$tooVerbose"
-    $tooVerbose=Install-WindowsFeature -name NET-Framework-45-Core,NET-Framework-45-ASPNET
+    $tooVerbose=Install-WindowsFeature -name NET-Framework-45-Core,NET-Framework-45-ASPNET -LogPath "$LogPath\feature-dotNet45FW.txt"
     Write-Verbose "$tooVerbose"
-    $tooVerbose=Install-WindowsFeature -name Web-Server,Web-Common-Http,Web-Windows-Auth,Web-Basic-Auth,Web-App-Dev,Web-Net-Ext45,Web-Asp-Net45,Web-ISAPI-Ext,Web-ISAPI-Filter -IncludeManagementTools
+    $tooVerbose=Install-WindowsFeature -name Web-Server,Web-Common-Http,Web-Windows-Auth,Web-Basic-Auth,Web-App-Dev,Web-Net-Ext45,Web-Asp-Net45,Web-ISAPI-Ext,Web-ISAPI-Filter -IncludeManagementTools -LogPath "$LogPath\feature-iis.txt"
     Write-Verbose "$tooVerbose"
 #    Install-WindowsFeature -name RSAT-AD-PowerShell
 }
@@ -39,21 +44,25 @@ function Install-ChocolateyPackages {
     param (
         $Packages,
         [string] $InstallPath = "C:\Ed-Fi",
-        [string] $LogPath = "C:\Ed-Fi\Logs"
+        [string] $LogPath = "C:\Ed-Fi\Logs\install"
     )
     if ($null -eq $Packages) {
         Write-Verbose "Package list empty!"
         return
     }
+    if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
+    }    
     if ($Packages -is [string]) {
         Write-Verbose "Installing simple (string) list of packages"
-        Install-Choco -Packages $Packages -InstallPath $InstallPath -LogPath $LogPath
+        Install-Choco -Packages $Packages -InstallPath $InstallPath -LogPath $LogPath -Verbose:$VerbosePreference
     }
     else {
         if ($Packages.Count -lt 1) {
             Write-Verbose "Package list empty!"
             return
         }
+        $coreParams=@{InstallPath=$InstallPath;LogPath=$LogPath}
         $versionedPackages = $Packages | Where-Object {$null -ne $_.version}
         $arglistPackages = $Packages | Where-Object {($null -eq $_.version) -and (($null -ne $_.installargs) -or ($null -ne $_.packageparams))}
         $otherPackages = $Packages | Where-Object {($null -eq $_.version) -and ($null -eq $_.installargs) -and ($null -eq $_.packageparams)}
@@ -61,31 +70,20 @@ function Install-ChocolateyPackages {
         foreach ($pkgItem in $otherPackages) {
             $packageList+="$($pkgItem.package) "
         }
-        $pathParams=@{InstallPath=$InstallPath;LogPath=$LogPath}
         Write-Verbose "Installing versioned packages first:"
         foreach ($pkgItem in $versionedPackages) {
-            $pkgparams=@{Packages=$pkgItem.package; Version=$pkgItem.version}
-            if ([string]::IsNullOrEmpty($pkgItem.installargs)) {
-                $pkgparams.Add('InstallArguments',$pkgItem.installargs)
-            }
-            if ([string]::IsNullOrEmpty($pkgItem.packageparams)) {
-                $pkgparams.Add('PackageParams',$pkgItem.packageparams)
-            }
-            Install-Choco @pkgparams @pathParams
+            $pkgparams=@{Packages=$pkgItem.package; Version=$pkgItem.version;InstallArguments=$pkgItem.installargs;PackageParams=$pkgItem.packageparams}
+            Install-Choco @pkgparams @coreParams -Verbose:$VerbosePreference
         }
         Write-Verbose "Arg or param list packages next:"
         foreach ($pkgItem in $arglistPackages) {
-            $pkgparams=@{Packages=$pkgItem.package}
-            if ([string]::IsNullOrEmpty($pkgItem.installargs)) {
-                $pkgparams.Add('InstallArguments',$pkgItem.installargs)
-            }
-            if ([string]::IsNullOrEmpty($pkgItem.packageparams)) {
-                $pkgparams.Add('PackageParams',$pkgItem.packageparams)
-            }
-            Install-Choco @pkgparams @pathParams
+            $pkgparams=@{Packages=$pkgItem.package;InstallArguments=$pkgItem.installargs;PackageParams=$pkgItem.packageparams}
+            Install-Choco @pkgparams @coreParams -Verbose:$VerbosePreference
         }
-        Write-Verbose "Installing remaining package list:"
-        Install-Choco -Packages $packageList @pathParams
+        if (![string]::IsNullOrEmpty($packageList)) {
+            Write-Verbose "Installing remaining package list:"
+            Install-Choco -Packages $packageList @coreParams -Verbose:$VerbosePreference    
+        }
     }
 }
 function Install-Choco {
@@ -97,18 +95,22 @@ function Install-Choco {
         [string] $PackageParams,
         [string] $Source,
         [string] $InstallPath = "C:\Ed-Fi",
-        [string] $LogPath = "C:\Ed-Fi\Logs"
+        [string] $LogPath = "C:\Ed-Fi\Logs\install"
     )
     # Uses the Chocolatey package manager to install a list of packages
     # $packages is a space separated string of packages to install simultaneously with chocolatey
     #
+    if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
+    }
     # Check/Install Chocolatey Package Manager 
     # 
     if (!(Get-Command "choco.exe" -ErrorAction SilentlyContinue)) {
         Write-Verbose "Installing Chocolatey package manager"
         Set-ExecutionPolicy Bypass -Scope Process -Force
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+        Invoke-Expression -OutVariable logOut -Command ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+        Set-Content -Path "$LogPath\choco-install.txt" -Value $logOut
         # Start-Sleep -Seconds 2  # Yes..sigh..a 2 second pause
     }
     if (!(Get-Command "Update-SessionEnvironment" -ErrorAction SilentlyContinue)) {
@@ -127,18 +129,16 @@ function Install-Choco {
         $chocArgs.Add("upgrade")
         $chocArgs.Add($Packages)
         $logFile+="choco-upgrade-"
-        $errFile+="choco-upgrade-"
     }
     else {
         $chocArgs.Add("install")
         $chocArgs.Add($Packages)
         $logFile+="choco-install-"
-        $errFile+="choco-install-"
         if ($PackageParams) {
             $chocArgs.Add("--params `"'$PackageParams'`"")
         }
         if ($InstallArguments) {
-            $chocArgs.Add("--installarguments `"'$InstallArguments'`"")
+            $chocArgs.Add("--override --installarguments `"'$InstallArguments'`"")
         }
         if ($Version) {
             $chocArgs.Add("--version=$Version")
@@ -147,20 +147,19 @@ function Install-Choco {
             $chocArgs.Add("--source=$Source")
         }
     }
-    $chocArgs.Add('-y')
-    $chocArgs.Add('--noprogress')
-    if ($Packages.Length -gt 20) {
-        $logFile+=$Packages.Substring(0,19)
+    $pkgnames=$Packages -replace "\s","-"
+    if ($pkgnames.Length -gt 20) {
+        $logFile+=$pkgnames.Substring(0,19)
     }
     else {
-        $logFile+=$Packages
+        $logFile+=$pkgnames
     }
-    $errFile=$logFile
     $logFile+="-log.txt"
-    $errFile+="-err.txt"
+    $chocArgs.Add("-y")
+    $chocArgs.Add("--log-file=$logFile")
     # Could use $chocArgs.ToArray()
-    Write-Verbose "Start-Process -Wait -NoNewWindow -RedirectStandardOutput $logFile -RedirectStandardError $errFile -FilePath $ChocoPath -ArgumentList $chocArgs"
-    Start-Process -Wait -NoNewWindow -RedirectStandardOutput $logFile -RedirectStandardError $errFile -FilePath $ChocoPath -ArgumentList $chocArgs
+    Write-Verbose "Start-Process -Wait -NoNewWindow -FilePath $ChocoPath -ArgumentList $chocArgs"
+    Start-Process -Wait -NoNewWindow -FilePath $ChocoPath -ArgumentList $chocArgs
     Update-SessionEnvironment
 }
 function Copy-GitRepo {
@@ -290,11 +289,14 @@ function Install-NugetPackage {
         [string] $version,
         [string] $packageSource = "https://www.myget.org/F/ed-fi/",
         [string] $FilePath = "C:\Ed-Fi\Downloads",
-        [string] $LogPath = "C:\Ed-Fi\Logs"
+        [string] $LogPath = "C:\Ed-Fi\Logs\install"
     )
     # Verify that the Downloads folder is present
     if (! $(Try { Test-Path -ErrorAction SilentlyContinue $FilePath } Catch { $false }) ) {
         $tooVerbose = New-Item -ItemType Directory -Force -Path $FilePath
+    }
+    if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
     }    
     $downloadedPackagePath = Join-Path $FilePath "$packageName.$version"
     if (!(Get-Command "nuget.exe" -ErrorAction SilentlyContinue)) {

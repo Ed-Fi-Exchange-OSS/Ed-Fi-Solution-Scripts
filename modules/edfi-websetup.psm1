@@ -41,8 +41,11 @@ function Get-LetsEncSSLCert {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $DnsName,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $AdminEmail="techsupport@ed-fi.org",
         $CertName="Ed-Fi Solution Installer",
-        [string]$LogPath = "C:\Ed-Fi\Logs"
+        [string]$LogPath = "C:\Ed-Fi\Logs\install"
     )
+    if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+        $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
+    }
     # Check for existing certificate first
     $certificates = Get-ChildItem Cert:\LocalMachine\WebHosting
     foreach($cert in $certificates) { 
@@ -131,7 +134,7 @@ function Set-IISHttpBinding {
             Stop-IISCommitDelay
         }
         catch {
-            Write-Warning "Warning:`n Failed to set IIS binding for $DnsName on http.`n  Exception was: $_ `n"
+            Write-Warning "`nWarning:`n Failed to set IIS binding for $DnsName on http.`n  Exception was: $_ `n"
         }
     }
     return $httpBinding
@@ -162,7 +165,7 @@ function Set-IISSslBinding {
         # This helps the Acme client since it prefers a binding for a specific host name, and it shouldn't break a wildcard entry.
         $httpBinding=Set-IISHttpBinding -DnsName $DnsName -SiteName $SiteName
         if ($null -eq $httpBinding) {
-            Write-Warning "Unable to set http mapping for $DnsName. This may result in failures for certificate renewals for Let's Encrypt ACME client."
+            Write-Warning "`nUnable to set http mapping for $DnsName.`n This will result in failures for certificate renewals for Let's Encrypt ACME client using http method. Consider using DNS method.`n"
         }
     }
     try {
@@ -178,7 +181,7 @@ function Set-IISSslBinding {
         if ($null -eq $httpsBinding) {
             $httpsBinding=$allBindings | Where-Object {$_.BindingInformation -eq "*:${HttpsPort}:*"}
             if ($null -ne $httpsBinding) {
-                Write-Warning "Using existing wilcard (*) binding on hostname.`n  If cert is not wilcard or subject alt names don't cover actual mappings, site will have certificate errors."
+                Write-Warning "`nUsing existing wilcard (*) binding on hostname.`n  If cert is not wilcard or subject alt names don't cover actual mappings, site will have certificate errors.`n"
                 $isLocal=$true
             }
         }
@@ -187,7 +190,7 @@ function Set-IISSslBinding {
         try {
             $iisSrvMgr = Get-IISServerManager
             Start-IISCommitDelay
-            Write-Warning "Changing cert store and thumprint for existing binding.`nSite: $SiteName Binding: *:${HttpsPort}:$DnsName Cert store:$certStoreLocation Hash/Thumprint: $($SslCertificate.Thumbprint)"
+            Write-Warning "`nChanging cert store and thumprint for existing binding.`nSite: $SiteName Binding: *:${HttpsPort}:$DnsName Cert store:$certStoreLocation Hash/Thumprint: $($SslCertificate.Thumbprint)`n"
             $httpsBinding.CertificateStoreName=$certStoreName
             $httpsBinding.CertificateHash=$SslCertificate.Thumbprint
             $iisSrvMgr.CommitChanges()
@@ -202,7 +205,7 @@ function Set-IISSslBinding {
             try {
                 $iisSrvMgr = Get-IISServerManager
                 Start-IISCommitDelay
-                Write-Warning "There are other SSL bindings on port $HttpsPort for this website for hosts other than $DnsName.`n  Updating these bindings to use Server Name Ident so that they can coexist."
+                Write-Warning "`nThere are other SSL bindings on port $HttpsPort for this website for hosts other than $DnsName.`n  Updating these bindings to use Server Name Ident so that they can coexist.`n"
                 foreach ($bnd in $allBindings) {
                     # Add SNI for this name
                     # For use by Netsh
@@ -220,7 +223,7 @@ function Set-IISSslBinding {
                 Stop-IISCommitDelay            
             }
             catch {
-                Write-Warning "Failed to set SslFlags for bindings on site: $SiteName  Attempting to continue anyway. `n Error: $_"
+                Write-Warning "`nFailed to set SslFlags for bindings on site: $SiteName  Attempting to continue anyway. `n Error: $_`n"
             }
         }
         if (!$isLocal) {
@@ -232,8 +235,14 @@ function Set-IISSslBinding {
                 $httpsBinding = New-IISSiteBinding -name $SiteName -BindingInformation "*:${HttpsPort}:$DnsName" -protocol https -CertStoreLocation $certStoreLocation -CertificateThumbPrint $($SslCertificate.Thumbprint) -SslFlag "Sni"
                 $iisSrvMgr.CommitChanges()
                 Stop-IISCommitDelay
-#                Write-Verbose "Command: $netshCmd http add sslcert hostnameport=`"${DnsName}:$HttpsPort`" certhash=$certHash certstorename=$certStoreName appid=`"$appguid`""
-#                & $netshCmd http add sslcert hostnameport="${DnsName}:$HttpsPort" certhash=$certHash certstorename=$certStoreName appid="$appguid"
+                # Write-Verbose "Command: $netshCmd http add sslcert hostnameport=`"${DnsName}:$HttpsPort`" certhash=$certHash certstorename=$certStoreName appid=`"$appguid`""
+                # & $netshCmd http add sslcert hostnameport="${DnsName}:$HttpsPort" certhash=$certHash certstorename=$certStoreName appid="$appguid"
+                # Add SPN for new DNS entry so that the IIS Server can support Windows Auth on that domain name
+                # $spnCmd = Get-Command "setspn.exe"
+                # if ($null -ne $spnCmd) {
+                #     & $spnCmd "-A HTTP/$DnsName" # add DNS for AD use
+                # }
+                #
             }
             catch {
                 Write-Error "Failed to bind https on port $HttpsPort to host $DnsName for site: $SiteName"
@@ -298,13 +307,13 @@ function Set-IISSiteName {
                 if ($SiteName -eq $defaultSiteName) {
                     throw "No IIS default site: $defaultSiteName `n  Unable to configure IIS for HTTP or HTTPS." 
                 }
-                Write-Warning "Unable to create IIS Site Name: $SiteName `n  Switching to default site name: $defaultSiteName and trying again."
+                Write-Warning "`nUnable to create IIS Site Name: $SiteName `n  Switching to default site name: $defaultSiteName and trying again.`n"
                 $SiteName=$defaultSiteName
                 $iisSite=$null
             }
         }
         else {
-            Write-Verbose "Found existing IIS Site named: $SiteName at:$iisSite"
+            Write-Verbose "Found IIS Site named: $SiteName at:$iisSite"
         }
     }
     return $iisSite
@@ -323,16 +332,16 @@ function Enable-WebServerSSL {
     $iisSite = $null
     $httpsBinding = $null
     Set-Location $InstallPath    
-    if ([string]::IsNullOrEmpty($HostDNS) -or ($HostDNS -like "localhost*")) {
-        $HostDNS = "localhost"
-        # Must use default site name on localhost to avoid breaking things
-        $SiteName = $defaultSiteName
-        Write-Verbose "Using default (existing) IIS site: $SiteName"
-    }
     # Check for a different Site Name than default
     if ([string]::IsNullOrEmpty($SiteName)) {
         $SiteName = $defaultSiteName
         Write-Verbose "Using default (existing) IIS site: $SiteName"
+    }
+    if ([string]::IsNullOrEmpty($HostDNS) -or ($HostDNS -like "localhost*")) {
+        $HostDNS = "localhost"
+        # Consider using default site name on localhost to avoid breaking things
+        # $SiteName = $defaultSiteName
+        Write-Verbose "Setting dns hostname to localhost for IIS site: $SiteName"
     }
     # Look for and return an existing SSL binding for the given site name
     try {
@@ -346,7 +355,7 @@ function Enable-WebServerSSL {
     }
     try {
         if ($httpsBinding=Get-IISSiteBinding -Name $SiteName -Protocol "https" -BindingInformation "*:${HttpsPort}:*" -ErrorAction SilentlyContinue) {
-            Write-Warning "`nIIS is already configured for https on $SiteName for the all-hosts wildcard (*) on port: $HttpsPort as binding: $httpsBinding.`n  Changing the SSL certificate for the wildcard anyway.`n  This will break SSL validity for certain hostnames such as localhost"
+            Write-Warning "`nIIS is already configured for https on $SiteName for the all-hosts wildcard (*) on port: $HttpsPort as binding: $httpsBinding.`n  Changing the SSL certificate for the wildcard anyway.`n  This will break SSL validity for certain hostnames such as localhost`n"
         }
     }
     catch {
@@ -374,18 +383,11 @@ function Enable-WebServerSSL {
         # Obtain a free Let's Encrypt cert for given hostname
         $newCert = Get-LetsEncSSLCert -DnsName $HostDNS -CertName "Ed-Fi Solution Installer" -AdminEmail $AdminEmail -Verbose:$VerbosePreference
         if ($null -eq $newCert) {
-            Write-Warning "Failed to get Let's Encrypt cert, binding self-signed cert to wildcard instead"
+            Write-Warning "`nFailed to get Let's Encrypt cert, binding self-signed cert to wildcard instead.`nThis may fail if existing wildcard entries are found.`n"
             $httpsBinding=Set-IISSslBinding -DnsName "*" -SslCertificate $selfSignedCert -HttpsPort $HttpsPort -SiteName $SiteName -certStoreName "MY" -certStoreLocation "Cert:\LocalMachine\My" -Verbose:$VerbosePreference
         }
         else {
             $httpsBinding=Set-IISSslBinding -DnsName $HostDNS -SslCertificate $newCert -HttpsPort $HttpsPort -SiteName $SiteName -certStoreName "WebHosting" -certStoreLocation "Cert:\LocalMachine\WebHosting" -Verbose:$VerbosePreference
-            #
-            # Add SPN for new DNS entry so that the IIS Server can support Windows Auth on that domain name
-            # $spnCmd = Get-Command "setspn.exe"
-            # if ($null -ne $spnCmd) {
-            #     & $spnCmd "-A HTTP/$HostDNS" # add $iisConfig.integratedSecurityUser for AD use
-            # }
-            #
             # Attaching the self-signed certificate to localhost
             $httpsLHBinding=Set-IISSslBinding -DnsName "localhost" -SslCertificate $selfSignedCert -HttpsPort $HttpsPort -SiteName $SiteName -certStoreName "MY" -certStoreLocation "Cert:\LocalMachine\My" -Verbose:$VerbosePreference
         }

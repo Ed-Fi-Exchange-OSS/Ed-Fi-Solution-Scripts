@@ -78,8 +78,8 @@ $LogPath = "$EdFiDir\Logs\install"
 if (! $(Try { Test-Path $downloadPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
     $tooVerbose = New-Item -ItemType Directory -Force -Path $downloadPath
 }
-# move installation ini files to downloads dir
-Move-Item -Path "$PSScriptRoot\config\*.ini" -Destination $downloadPath -Force
+# Copy installation ini files to downloads dir
+Copy-Item -Path "$PSScriptRoot\config\*.ini" -Destination $downloadPath -Force
 #
 if (! $(Try { Test-Path "$SolutionWebRoot\*.html" -ErrorAction SilentlyContinue } Catch { $false }) ) {
     # Relocate downloaded www directory only if no html files are present locally
@@ -117,20 +117,23 @@ $SolutionsAppName = Get-ConfigParam $null $cfg.SolutionsAppName "EdFiSolutions"
 # Ed-Fi Solution Builder Script for Windows Powershell
 #
 $GitPrefix = if (!([string]::IsNullOrEmpty($cfg.GitPAT))) {"$($cfg.GitPAT):x-oauth-basic"}
-$NewComputerName="edfisolsrv"
+$OldComputerName="$Env:ComputerName"
+$NewComputerName=$OldComputerName
 if (!([string]::IsNullOrEmpty($DnsName))) {
     $NewComputerName=$DnsName
     if ($DnsName.IndexOf(".") -gt 1) {
         $NewComputerName = $DnsName.Substring(0,$DnsName.IndexOf("."))
     }
-#    else {
-#        Write-Warning "WARNING!  Removing given DnsName because the provided string has no periods and therefore cannot be a complete DNS name!"
-#        $DnsName =$null
-#    }
+    else {
+        Write-Warning "`nWARNING!  Removing given DnsName because the provided string has no periods and therefore cannot be a complete DNS name!`nContinuing without custom DNS name!`nPausing, use CTRL-C to cancel"
+        Start-Sleep -Seconds 5
+        $DnsName=$null
+    }
 }
 # This can be updated in the config as MSSQLEURL as needed.
 $MSSQLEURL = Get-ConfigParam $null $cfg.MSSQLEURL 'https://download.microsoft.com/download/8/4/c/84c6c430-e0f5-476d-bf43-eaaa222a72e0/SQLEXPR_x64_ENU.exe'
 $SQLINST = Get-ConfigParam $null $cfg.MSSQLINST "MSSQLSERVER"
+$MSSQLInstalled = $false
 $PGSQLInstalled = $false
 # Can be overridden but must include these definitions TODO: move to config file
 $iisConfig=@{
@@ -146,23 +149,24 @@ $iisConfig.SiteName = Get-ConfigParam $iisSiteName $cfg.iisSiteName "Default Web
 #
 # Install type is typically Staging for Populated Template ODS or Prodution for Minimal Template
 $InstallType = Get-ConfigParam $InstallType $cfg.InstallType "Demo"
-Write-Verbose "`n----------------`nConfiguration params:`nEd-Fi Dir:`"$EdFiDir`"`ndownloadPath:`"$downloadPath`"`nSolutionWebRoot:`"$SolutionWebRoot`"`nDnsName:`"$DnsName`"`nNewComputerName:`"$NewComputerName`"`nAdminEmail:`"$AdminEmail`"`nDDNSUrl:`"$DDNSUrl`"`nDDNSUsername:`"$DDNSUsername`"`nDDNSPassword:`"$DDNSPassword`"`nSolutionsAppName:`"$SolutionsAppName`"`nGitPrefix:`"$GitPrefix`"`nSQLINST:`"$SQLINST`"`nInstallType:`"$InstallType`""
+Write-Verbose "`n----------------`nConfiguration params:`nEd-Fi Dir:`"$EdFiDir`"`ndownloadPath:`"$downloadPath`"`nSolutionWebRoot:`"$SolutionWebRoot`"`nDnsName:`"$DnsName`"`nComputerName:`"$OldComputerName`"`nSuggestedComputerName:`"$NewComputerName`"`nAdminEmail:`"$AdminEmail`"`nDDNSUrl:`"$DDNSUrl`"`nDDNSUsername:`"$DDNSUsername`"`nDDNSPassword:`"$DDNSPassword`"`nSolutionsAppName:`"$SolutionsAppName`"`nGitPrefix:`"$GitPrefix`"`nSQLINST:`"$SQLINST`"`nInstallType:`"$InstallType`""
 Write-Verbose "iisConfig: $(Convert-HashtableToString $iisConfig)`n----------------`n"
 Write-Progress -Activity "Configuration parameters set. Adding DNS info to computer name..." -Status "1% Complete:" -PercentComplete 1;
 #
 # UI for options
 #
-# Save the old hostname for fixing install stuff. Then set the hostname right
-$oldComputerName="$Env:ComputerName"
-if (!($oldComputerName -like $NewComputerName)) {
-#    Rename-Computer -NewName "$NewComputerName" -Force
+#
+#
+if ($OldComputerName -notlike $NewComputerName) {
     $netdomCmd = (Get-Command "netdom.exe" -ErrorAction SilentlyContinue).Source
-#    & $netdomCmd computername "$NewComputerName" /add:"$DnsName"
+    Write-Warning "`nComputer name not like DNS name. Adding entry for DNS name to Windows Domain/Active Directory with netdom.exe `n  If you rename computer, be sure to update integrated security in database server.`n"
+    Write-Verbose "To rename, use command: Rename-Computer -NewName `"$NewComputerName`" (-Force to force change)"
+    Write-Verbose "Then, to add a DNS entry: $netdomCmd computername `"$NewComputerName`" /add:`"$DnsName`"`n"
     & $netdomCmd computername "$OldComputerName" /add:"$DnsName"
-    Write-Verbose "Skipped Rename of Computer to $NewComputerName"
-    $NewComputerName=$oldComputerName
+    Write-Verbose "Added DNS: $DnsName to WinDom/AD for Computer: $OldComputerName"
+    $NewComputerName=$OldComputerName
 }
-Write-Progress -Activity "Computer name set. Installing required Windows Features..." -Status "2% Complete:" -PercentComplete 2;
+Write-Progress -Activity "Computer name and DNS set. Installing required Windows Features..." -Status "2% Complete:" -PercentComplete 2;
 #
 # Enable Windows features - Must haves
 Enable-RequiredWindowsFeatures -Verbose:$VerbosePreference
@@ -199,12 +203,10 @@ if (($null -eq $solutionsInstall) -or ($solutionsInstall.Count -eq 0)) {
 # Select versions required by listed solutions
 $EdFiVersions = $solutionsInstall | ForEach-Object {$_.EdFiVersion} | Sort-Object -Unique
 #
-$preInstallPackages = Select-InstallPackages -globalPackages $cfg.preInstallPackages -solutions $solutionsInstall -sequence "pre" -Verbose:$VerbosePreference
-# Skipping base config file since we will use/install SQL Server either way
-# $dbInstallPackages = Get-ConfigParam $pkg.dbInstallPackages $cfg.dbInstallPackages "{`"package`": `"sql-server-express`", `"installargs`": `"/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=$SQLINST /INSTANCENAME=$SQLINST /ConfigurationFile=C:\Ed-Fi\Downloads\SQLExprConfig.ini`"}"
-# $dbInstallPackages = Select-InstallPackages -globalPackages $dbInstallPackages -solutions $solutionsInstall -sequence "db"
-$dbInstallPackages = Select-InstallPackages -globalPackages "" -solutions $solutionsInstall -sequence "db" -Verbose:$VerbosePreference
-$postInstallPackages = Select-InstallPackages -globalPackages $cfg.postInstallPackages -solutions $solutionsInstall -sequence "post" -Verbose:$VerbosePreference
+# [System.Collections.Generic.List[PSCustomObject]]
+[array]$preInstallPackages = Select-InstallPackages -globalPackages $cfg.preInstallPackages -solutions $solutionsInstall -sequence "pre" -Verbose:$VerbosePreference
+[array]$dbInstallPackages = Select-InstallPackages -globalPackages $cfg.dbInstallPackages -solutions $solutionsInstall -sequence "db" -Verbose:$VerbosePreference
+[array]$postInstallPackages = Select-InstallPackages -globalPackages $cfg.postInstallPackages -solutions $solutionsInstall -sequence "post" -Verbose:$VerbosePreference
 if ($null -ne $preInstallPackages) {
     Write-Verbose "Pre-Install Packages:"
     foreach ($pkg in $preInstallPackages) { Write-Verbose $pkg }
@@ -212,23 +214,9 @@ if ($null -ne $preInstallPackages) {
 else {
     Write-Verbose "No pre-install packages selected!"
 }
-if ($null -ne $dbInstallPackages) {
-    Write-Verbose "Db Install Packages:"
-    foreach ($pkg in $dbInstallPackages) { Write-Verbose $pkg }
-}
-else {
-    Write-Verbose "No db install packages selected!"
-}
-if ($null -ne $postInstallPackages) {
-    Write-Verbose "Post-Install Packages:"
-    foreach ($pkg in $postInstallPackages) { Write-Verbose $pkg }
-}
-else {
-    Write-Verbose "No post-install packages selected!"
-}
 # 
 Write-Progress -Activity "Installing prereqisite software packages from Chocolatey..." -Status "7% Complete:" -PercentComplete 7;
-Install-ChocolateyPackages -packages $preInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
+Install-ChocolateyPackages -Packages $preInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
 Write-Verbose "Installed Pre-installation Packages: $preInstallPackages"
 Write-Progress -Activity "Essential software packages installed. Discovering IP address and updating Dynamic DNS (if enabled)" -Status "15% Complete:" -PercentComplete 15;
 # Configure public DNS hostname and use it to get Lets Encrypt SSL Cert 
@@ -256,22 +244,36 @@ else {
 }
 Write-Progress -Activity "IP Address assigned to Dynamic DNS. Installing database server packges from Chocolatey..." -Status "20% Complete:" -PercentComplete 20;
 #
-# Now install database dependencies as listed in config, e.g. Postgres, and SQL Server
-# Note that SSMS is expected if installing SQL Express
-# 
-Install-ChocolateyPackages -packages $dbInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
+if ($null -ne $dbInstallPackages) {
+    Write-Verbose "Db Install Packages:"
+    foreach ($pkg in $dbInstallPackages) { Write-Verbose $pkg }
+}
+else {
+    Write-Verbose "No db install packages selected!"
+}
+Write-Verbose "Install-ChocolateyPackages -Packages $dbInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference"
+Install-ChocolateyPackages -Packages $dbInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
 foreach ($pkg in $dbInstallPackages) {
-    $PGSQLInstalled = $PGSQLInstalled -or ($pkg.package -like "*postgres*")
+    $PGSQLInstalled = $PGSQLInstalled -or ($pkg.package -like "postgres*")
+    $MSSQLInstalled = $MSSQLInstalled -or ($pkg.package -like "sql-server*")
 }
 if ($PGSQLInstalled) {
     Initialize-Postgresql -Verbose:$VerbosePreference
     Write-Verbose "PostgreSQL installed and configured for use."
 }
-Write-Progress -Activity "Database software packages installed.  Installing SQL Server if needed..." -Status "30% Complete:" -PercentComplete 30;
+if ($MSSQLInstalled) {
+    $SQLINST=Get-MSSQLInstallation -Verbose:$VerbosePreference
+    Write-Verbose "Microsoft SQL Server installed and ready for use."
+}
 #
 # Check and install SQL server if needed
-$SQLINST = Install-MSSQLserverExpress -FilePath $downloadPath -MSSQLEURL $MSSQLEURL -SQLINST $SQLINST -Verbose:$VerbosePreference
-Write-Verbose "SQL Server instance: $SQLINST"
+if ([string]::IsNullOrEmpty($SQLINST)) {
+    Write-Verbose "Forcing SQL Server install ..."
+    $SQLINST = Install-MSSQLserverExpress -FilePath $downloadPath -MSSQLEURL $MSSQLEURL -SQLINST $SQLINST -Verbose:$VerbosePreference
+    Write-Verbose "SQL Server instance: $SQLINST"
+}
+#
+Write-Progress -Activity "Database software packages installed." -Status "35% Complete:" -PercentComplete 35;
 if ($InstallType -like "Demo") {
     # !!!!!
     # Weak passwords may not work for SQL Auth, so this step we'll weaken them on Demo machines.
@@ -279,7 +281,6 @@ if ($InstallType -like "Demo") {
     # !!!!!
     Set-WeakPasswordComplexity -FilePath $downloadPath  -Verbose:$VerbosePreference
 }
-Write-Progress -Activity "SQL Server installed and configured" -Status "40% Complete:" -PercentComplete 40;
 #
 # Get SSL working on IIS including Self-signed and LE certs, will also setup new IIS Site and App Pool if specified.
 # However, this returns the Site Name that was used (whether specified or default in case of trouble), so be sure and store that for later use.
@@ -289,15 +290,17 @@ Write-Verbose "SSL configuration for IIS complete"
 Write-Progress -Activity "IIS Configured for SSL" -Status "50% Complete:" -PercentComplete 50;
 #
 # Add IIS special integrated user to SQL Server login along with those in Users group for Demo mode
-Add-SQLIntegratedSecurityUser -UserName $iisConfig.integratedSecurityUser -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
-# Now get all of the Users group (if Demo) members added to make this actually work
-if ($InstallType -like "Demo") {
-    $LocalUsers=(@(Get-LocalGroupMember "Users") | Where-Object {$_.ObjectClass -like "User"}).Name
-    foreach ($usr in $LocalUsers) {
-        Update-SQLIntegratedSecurityUser -UserName $usr -ComputerName $NewComputerName -PreviousComputerName $oldComputerName -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
+if (![string]::IsNullOrEmpty($SQLINST)) {
+    Add-SQLIntegratedSecurityUser -UserName $iisConfig.integratedSecurityUser -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
+    # Now get all of the Users group (if Demo) members added to make this actually work
+    if ($InstallType -like "Demo") {
+        $LocalUsers=(@(Get-LocalGroupMember "Users") | Where-Object {$_.ObjectClass -like "User"}).Name
+        foreach ($usr in $LocalUsers) {
+            Update-SQLIntegratedSecurityUser -UserName $usr -ComputerName $NewComputerName -PreviousComputerName $OldComputerName -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
+        }
     }
+    Write-Progress -Activity "Integrated Security configured" -Status "55% Complete:" -PercentComplete 55;    
 }
-Write-Progress -Activity "Integrated Security configured" -Status "55% Complete:" -PercentComplete 55;
 #
 # Now get needed versions of the ODS/API, Admin App, AMT, and Data Import installed
 foreach ($ver in $EdFiVersions) {
@@ -320,6 +323,13 @@ Write-Progress -Activity "Solutions installed" -Status "80% Complete:" -PercentC
 #
 # Install any additional tools
 #
+if ($null -ne $postInstallPackages) {
+    Write-Verbose "Post-Install Packages:"
+    foreach ($pkg in $postInstallPackages) { Write-Verbose $pkg }
+}
+else {
+    Write-Verbose "No post-install packages selected!"
+}
 Install-ChocolateyPackages -packages $postInstallPackages -LogPath $LogPath -Verbose:$VerbosePreference
 #
 # Look for MS Edge in the install to switch to it since IE is unworkable on Server

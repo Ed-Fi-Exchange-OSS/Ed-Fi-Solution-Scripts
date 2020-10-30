@@ -13,6 +13,7 @@ function Enable-TCPonSQLInstance {
     # NEED to update and test with $SQLINST, hardcoded for now
     $URI = "ManagedComputer[@Name='" + (get-item env:\computername).Value + "']/ServerInstance[@Name='" + $SQLINST + "']/ServerProtocol[@Name='Tcp']"
     $TCPBinding = $WMI.GetSmoObject($URI)
+    if ($TCPBinding.IsEnabled) { return }
     # Turn on by setting to true and Alter-ing
     $TCPBinding.IsEnabled = $true
     $TCPBinding.Alter()
@@ -51,7 +52,7 @@ function Install-SqlServerModule {
         (Get-Command Restore-SqlDatabase).ImplementingType.Assembly
     }
     catch {
-        Write-Error "Problem loading correct SQL Server Management Objects for db Restore.  Error: $_ "
+        Write-Error "`nProblem loading correct SQL Server Management Objects.`n This will likely cause db restore to fail.`n  Error: $_ `n"
     }
 }
 function Add-SQLUser {
@@ -190,6 +191,21 @@ function Update-SQLIntegratedSecurityUser {
     }
     Add-UserSQLRole -UserName $UserName -IntegratedSecurityRole $IntegratedSecurityRole -SQLServerName $SQLServerName -Verbose:$VerbosePreference
 }
+function Get-MSSQLInstallation {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param ()
+    if (Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL") {
+        $sqlInstances = Get-ChildItem "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names"
+        Write-Verbose "SQL Server installation found with instances:`n $($sqlInstances|ForEach-Object {$_.Property}) `n"
+        # Get SQL Server PowerShell support from the PS Gallery
+        Install-SqlServerModule -Verbose:$VerbosePreference
+        # Ensure TCP Connectivity is enabled
+        $SQLINST=$sqlInstances[0].Property[0]
+        Enable-TCPonSQLInstance -SQLINST $SQLINST -Verbose:$VerbosePreference
+        return $SQLINST
+    }
+    return $null
+}
 function Install-MSSQLserverExpress {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
     param (
@@ -202,30 +218,19 @@ function Install-MSSQLserverExpress {
         $tooVerbose = New-Item -ItemType Directory -Force -Path $FilePath
     }
     #
-    if (Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL") {
-        $sqlInstances = Get-ChildItem "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names"
-        Write-Verbose "SQL Server installation found with instances:`n $($sqlInstances|ForEach-Object {$_.Property}) `n"
-        # Get SQL Server PowerShell support from the PS Gallery
-        Install-SqlServerModule
-        # Ensure TCP Connectivity is enabled
-        $SQLINST=$sqlInstances[0].Property
-        Enable-TCPonSQLInstance -SQLINST $SQLINST
-        return $SQLINST
+    # Check for existing installation
+    $ExistingSQLINST=Get-MSSQLInstallation
+    if (![string]::IsNullOrEmpty($ExistingSQLINST)) {
+        return $ExistingSQLINST
     }
     # No SQL instances found so we'll Install MS SQL Server Express 2019 with our special install config ini file
     #
     $InstINI = "$FilePath\SQLExprConfig.ini"
     # First try Chocolatey
-    Install-Choco -Packages "sql-server-express" -InstallArguments "/IACCEPTSQLSERVERLICENSETERMS /Q /INSTANCEID=$SQLINST /INSTANCENAME=$SQLINST /ConfigurationFile=$InstINI"
-    if (Test-Path -ErrorAction SilentlyContinue "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names\SQL") {
-        $sqlInstances = Get-ChildItem "HKLM:\Software\Microsoft\Microsoft SQL Server\Instance Names"
-        Write-Verbose "SQL Server installation found with instances:`n $($sqlInstances|ForEach-Object {$_.Property}) `n"
-        # Get SQL Server PowerShell support from the PS Gallery
-        Install-SqlServerModule
-        # Ensure TCP Connectivity is enabled
-        $SQLINST=$sqlInstances[0].Property
-        Enable-TCPonSQLInstance -SQLINST $SQLINST
-        return $SQLINST
+    Install-Choco -Packages "sql-server-express" -InstallArguments "/ACTION=install /Q /IACCEPTSQLSERVERLICENSETERMS /INSTANCEID=MSSQLSERVER /INSTANCENAME=MSSQLSERVER /ConfigurationFile=$InstINI"
+    $ExistingSQLINST=Get-MSSQLInstallation
+    if (![string]::IsNullOrEmpty($ExistingSQLINST)) {
+        return $ExistingSQLINST
     }
     Write-Verbose "SQL Server Express installation by Chocolatey failed.  Attempting to download and install directly."
     #

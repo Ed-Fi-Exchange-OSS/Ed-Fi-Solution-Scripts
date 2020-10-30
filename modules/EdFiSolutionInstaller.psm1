@@ -186,8 +186,11 @@ function Add-DesktopAppLinks {
         [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
         param (
             $EdFiDir="C:\Ed-Fi",
-            [string]$LogPath = "C:\Ed-Fi\Logs"
+            [string]$LogPath = "C:\Ed-Fi\Logs\install"
             )
+        if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+            $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
+        }
         $AppAssocFile="$EdFiDir\LocalAppAssociations.xml"
         Start-Process -Wait Dism.exe "/Online /Export-DefaultAppAssociations:$AppAssocFile" -RedirectStandardOutput "$LogPath\dism-exp-log.txt" -RedirectStandardError "$LogPath\dism-exp-err.txt"
         $AppAssociations=New-Object XML
@@ -271,6 +274,10 @@ function Add-DesktopAppLinks {
             $EdFiDir="C:\Ed-Fi"
             )
         # Ex: Install-Solutions -Solutions $solutionsInstall -DnsName $DnsName -GitPrefix $GitPrefix -DownloadPath $downloadPath -WebPath $SolutionsWebRoot -EdFiDir $EdFiDir
+        $LogPath="$EdFiDir\Logs\install"
+        if (! $(Try { Test-Path $LogPath -ErrorAction SilentlyContinue } Catch { $false }) ) {
+            $tooVerbose = New-Item -ItemType Directory -Force -Path $LogPath
+        }    
         if ([string]::IsNullOrEmpty($WebPath)) {
             $WebPath="$EdFiDir\www"
         }
@@ -279,9 +286,6 @@ function Add-DesktopAppLinks {
                 $sol.name="Ed-Fi Solution Starter Kit base"
             }
             Write-Verbose "Installing $($sol.name)"
-            if (!([string]::IsNullOrEmpty($sol.chocoPackages))) {
-                Install-Choco $sol.chocoPackages -Verbose:$VerbosePreference
-            }
             if (!([string]::IsNullOrEmpty($sol.repo))) {
                 if (!($sol.repo -like "http*")) {
                     $repoURL="https://$($GitPrefix)@$($sol.repo)"
@@ -289,7 +293,7 @@ function Add-DesktopAppLinks {
                 else {
                     $repoURL=$sol.repo
                 }
-                Write-Verbose "Cloning solution repo from: $repoURL"
+                Write-Verbose "Cloning solution source from Git repo: $repoURL"
                 Set-Location $EdFiDir
                 Copy-GitRepo $repoURL $sol.installSubPath  -Verbose:$VerbosePreference   # Installs in subdir of current dir
             }

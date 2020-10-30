@@ -14,12 +14,12 @@
                 {"type": "File", "name": "ChronAbs Suspensions YTD Report", "URI": "TableauDesktop\\Suspension Rate YTD\\Suspension Rate YTD.twbx" },
                 {"type": "File", "name": "ChronAbs - Reports for Tableau Reader", "URI": "TableauReader" },
                 {"type": "URL", "name": "ChronAbs - Download Tableau Reader", "URI": "https://downloads.tableau.com/tssoftware/TableauReader-64bit-2020-3-0.exe" },
-                {"type": "URL", "name": "Chronic Absenteeism Solution User Guide", "URI": "https://github.com/Ed-Fi-Exchange-OSS/Chronic-Absentee-Reports-Tableau" }
+                {"type": "URL", "name": "Chronic Absenteeism Starter Kit Guide", "URI": "https://techdocs.ed-fi.org/display/SK/Chronic+Absenteeism+Starter+Kit" }
             ]
         },
         {   "name": "ParentPortal",
-            "description": "The Parent Engagement Portal built on NodeJS",
-            "preInstallPackages": "nodejs",
+            "description": "The Parent Engagement Portal",
+            "preInstallPackages": "nodejs netfx-4.7.1-devpack",
             "dbInstallPackages": "",
             "postInstallPackages": "visualstudio2019community",
             "repo": "https://github.com/Ed-Fi-Exchange-OSS/ParentPortal",
@@ -32,8 +32,8 @@
                 {"type": "URL", "name": "Public Demo of Parent Portal", "URI": "http://parentportal.toolwise.net/" }
             ]
         },
-        {   "name": "EQ24",
-            "description": "ALPHA: Assessment Essential Question 24: Are My Students Improving in Math?",
+        {   "name": "AssessmentEQ24",
+            "description": "Assessment Essential Question 24: Are My Students Improving in Math?",
             "preInstallPackages": "powerbi",
             "repo": "",
             "installSubPath": "EQ24",
