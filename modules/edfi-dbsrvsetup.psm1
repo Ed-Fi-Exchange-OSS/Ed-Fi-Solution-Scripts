@@ -301,3 +301,51 @@ function Initialize-Postgresql {
     if (!$Env:PGLOCALEDIR) { $Env:PGLOCALEDIR = $psqlHome + "\share\locale" }
     if (!$Env:PGPORT) { $Env:PGPORT = "5432" }
 }
+function Restore-MSSQLDatabase {
+    [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [ValidateNotNullOrEmpty()][string]$dbBackupPath, 
+        [string]$dbDestinationName,
+        [string]$dbDestinationPath,
+        [string]$SQLServerName="."
+        )
+    $server = New-Object Microsoft.SqlServer.Management.Smo.Server $SQLServerName
+    if ($null -eq $dbDestinationPath) {
+        $dataFilePath = $(if ($server.Settings.DefaultFile) {$server.Settings.DefaultFile} else {$server.Information.MasterDBPath})
+        $logFilePath = $(if ($server.Settings.DefaultLog) {$server.Settings.DefaultLog} else {$server.Information.MasterDBLogPath})
+    }
+    else {
+        $dataFilePath=$dbDestinationPath
+        $logFilePath=$dbDestinationPath
+    }
+    $dbRestorePath = "$dataFilePath\$dbDestinationName.mdf"
+    $logRestorePath = "$logFilePath\$dbDestinationName.ldf"
+    if ($(Try { Test-Path $dbRestorePath -ErrorAction SilentlyContinue } Catch { $false })) {
+        throw "Database: $dbDestinationName already exists at: $dbRestorePath"
+    }
+    Write-Verbose "Restore database as $dbDestinationName from file $dbBackupPath to $dbRestorePath with log $logRestorePath"
+
+    $backupDeviceItem = New-Object Microsoft.SqlServer.Management.Smo.BackupDeviceItem -ArgumentList $dbBackupPath,'File'
+    $restore = New-Object Microsoft.SqlServer.Management.Smo.Restore
+    $restore.Database = $dbDestinationName
+    $tooVerbose = $restore.Devices.Add($backupDeviceItem)
+    $backupFiles = $restore.ReadFileList($server)
+    foreach ($file in $backupFiles) {
+        $relocateFile = New-Object Microsoft.SqlServer.Management.Smo.RelocateFile
+        $relocateFile.LogicalFileName = $file.LogicalName
+        if ($file.Type -eq 'D') {
+            $relocateFile.PhysicalFileName = $dbRestorePath
+        }
+        else {
+            $relocateFile.PhysicalFileName = $logRestorePath
+        }
+        $tooVerbose = $restore.RelocateFiles.Add($relocateFile) 
+    }
+    try {
+        $tooVerbose = $restore.SqlRestore($server)
+    }
+    catch {
+        Write-Error " Unable to restore database from backup.`n   Exception: $($_.Exception) Details: $_"
+    }
+    Write-Verbose "Restore of database completed:`n  $tooVerbose"
+}

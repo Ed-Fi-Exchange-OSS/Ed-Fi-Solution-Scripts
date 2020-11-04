@@ -265,6 +265,30 @@ function Copy-WebArchive {
     $tooVerbose=Expand-Archive -LiteralPath $FilePath -DestinationPath $InstallPath -Force
     Write-Verbose "Expand-Archive: $tooVerbose"
 }
+function Copy-WebFile {
+    [CmdletBinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [ValidateNotNullOrEmpty()][string]$Url,
+        [ValidateNotNullOrEmpty()][string]$FilePath,
+        [switch]$Overwrite
+    )
+    if ((Test-Path -ErrorAction SilentlyContinue $FilePath -PathType Leaf) -and (!$Overwrite)) {
+        Write-Verbose "File exists at Path: $FilePath."
+    }
+    else {
+        try {
+            $FileReq=Invoke-WebRequest -Uri $Url -OutFile $FilePath
+            if ($FileReq.StatusCode -ge 400) {
+                Write-Error "Unable to download web file from $Url to $FilePath. HTTP Status: $($FileReq.StatusDescription) `n Canceling download"
+                return
+            }
+        }
+        catch {
+            Write-Error "Unable to download web file from $Url to $FilePath. Error: $_ `n Canceling download"
+            return
+        }
+    }
+}
 function Convert-HashtableToString {
     param (
         [Parameter(Mandatory = $true)][System.Collections.Hashtable] $Hashtable

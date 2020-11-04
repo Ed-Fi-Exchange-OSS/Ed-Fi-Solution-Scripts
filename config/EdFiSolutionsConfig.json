@@ -25,7 +25,7 @@
             "repo": "https://github.com/Ed-Fi-Exchange-OSS/ParentPortal",
             "installSubPath": "ParentPortal",
             "installer": "",
-            "EdFiVersion": "3.4.0",
+            "EdFiVersion": "3.2.0",
             "appLinks": [
                 {"type": "File", "name": "Open ParentPortal Project in Visual Studio Community", "URI": "Student1.ParentPortal.sln" },
                 {"type": "URL", "name": "Ed-Fi Solution Parent Portal", "URI": "/Student1.ParentPortal.Web/" },
