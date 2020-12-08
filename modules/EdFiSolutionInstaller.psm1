@@ -271,6 +271,7 @@ function Add-DesktopAppLinks {
             $GitPrefix,
             $DownloadPath,
             $WebPath,
+            [System.Collections.Hashtable]$EdFiParamTable,
             $EdFiDir="C:\Ed-Fi"
             )
         # Ex: Install-Solutions -Solutions $solutionsInstall -DnsName $DnsName -GitPrefix $GitPrefix -DownloadPath $downloadPath -WebPath $SolutionsWebRoot -EdFiDir $EdFiDir
@@ -305,8 +306,8 @@ function Add-DesktopAppLinks {
                 throw "Failed to install solution files! Check repo or archive settings`n Repo: $($sol.repo)`n Archive: $($sol.archive)"
             }
             if (!([string]::IsNullOrEmpty($sol.installer))) {
-                # Pass in prefix and suffix to configure connections (db and API)
-                & "$($sol.installSubPath)\$($sol.installer)" "Staging" $sol.EdFiVersion
+                # Pass in Ed-Fi params which include db connection and API
+                & "$($sol.installSubPath)\$($sol.installer)" $EdFiParamTable
             }
             foreach ($link in $sol.appLinks) {
                 if ($link.type -eq "File") {

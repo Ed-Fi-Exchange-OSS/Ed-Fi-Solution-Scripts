@@ -48,7 +48,9 @@ Function Install-BaseEdFi {
     # IIS settings
     $virtualDirectoryName = "$versionNum-$InstallType"
     $appsBaseUrl = "https://$DnsName/$virtualDirectoryName"
-    $apiBaseUrl = "$appsBaseUrl/api"
+    # Store the key values for the ODS/API install in a hashtable
+    $OdsApiParams = @{Api="$appsBaseUrl/api"}
+    Write-Verbose "Added API URL as $appsBaseUrl/api"
     # Database vars
     $backupLocation = "$EdFiDir\v$SuiteVersion-$InstallType\dbs"
     $NamePrefix = "$InstallType"
@@ -74,11 +76,12 @@ Function Install-BaseEdFi {
     #
     # 2. Add main virtual directory for this Ed-Fi Suite to IIS
     if ($virtualDir=Get-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -ErrorAction SilentlyContinue ) {
-        Write-Verbose "Virtual directory for Suite: $SuiteVersion found at: $virtualDir `n  Skipping re-installation for site: $($iisConfig.SiteName)"
+        Write-Verbose "Virtual directory for Suite: $SuiteVersion found at: $virtualDir `n  Re-using existing site: $($iisConfig.SiteName)"
     } else {
         $virtualDir=New-WebVirtualDirectory -Site $iisConfig.SiteName -Name $virtualDirectoryName -PhysicalPath $directories.install -Force
         Write-Verbose "New-WebVirtualDirectory: $virtualDir"
     }
+
     # Create a list to collect the URLs for later use
     $appUrlList = [System.Collections.Generic.List[System.Collections.Hashtable]]::new()
     #
@@ -150,6 +153,8 @@ Function Install-BaseEdFi {
             Set-ConnectionStringsInWebConfig $appPhysicalPath $connStringTable 
             if ($connStringTable["EdFi_Ods"]) {
                 $odsName = $connStringTable["EdFi_Ods"]
+                $OdsApiParams.Add("Ods",$connStringTable["EdFi_Ods"])
+                Write-Verbose "ODS connection: $odsName"
             }
         }
         # v2.x
@@ -177,18 +182,16 @@ Function Install-BaseEdFi {
         }
     }
 
-    # 6. Install Analytics Middle Tier to ODS table, won't have much effect on a Sandbox env but should still work
+    # 6. Add URLs for all Apps
+    $OdsApiParams.Add("Urls",$appUrlList)
+
+    # 7. Install Analytics Middle Tier to ODS table
     if ($odsName -ne "") {
-        Install-AMT $EdFiDir $SuiteVersion $odsName
+        $tooVerbose=Install-AMT $EdFiDir $SuiteVersion $odsName
+        Write-Verbose "AMT Install Complete"
     }
     
-    # 7. Add URLs for all Apps to desktop
-    if (!(Get-Command "Add-DesktopAppLinks" -ErrorAction SilentlyContinue)) {
-        Import-Module .\EdFiBinaryInstaller.psm1
-    }
-    Add-DesktopAppLinks $appUrlList -Verbose:$VerbosePreference
-    Add-WebAppLinks -AppURIs $appUrlList -DnsName $DnsName -SolutionName "Ed-Fi Tools for ODS/API v$SuiteVersion" -Verbose:$VerbosePreference # -EdFiWebDir $SolutionWebRoot
-
+    return $OdsApiParams
 }
 # Region: Web.Config Functions
 function Add-AppDirectory {
@@ -345,6 +348,7 @@ function Install-AMT($EdFiDir="C:\Ed-Fi",$ODSVersion,$dbConnectionStr) {
     Set-Location "$EdFiDir\AMT\src\EdFi.AnalyticsMiddleTier.Console"
     & $dotnetCmd run --connectionString $dbConnectionStr --options $installOptions
     Set-Location $EdFiDir
+    return $null
 }
 function Install-DataImport($EdFiDir="C:\Ed-Fi",$GitPrefix) {
     if (! $(Try { Test-Path "$EdFIDir\DataImport" } Catch { $false }) ) {

@@ -1,5 +1,19 @@
 {
     "solutions": [
+        {   "name": "base",
+            "description": "Base Ed-Fi Suite 3.4 with ODS/API, Analytics Mid Tier, and Admin App",
+            "preInstallPackages": "",
+            "postInstallPackages": "",
+            "repo": "",
+            "archive": "",
+            "installSubPath": ".",
+            "installer": "",
+            "EdFiVersion": "3.4.0",
+            "appLinks": [
+                {"type": "URL", "name": "Admin App", "URI": "/AdminApp" },
+                {"type": "URL", "name": "API URL", "URI": "/Api" }
+            ]
+        },
         {   "name": "ChronicAbsenteeism",
             "description": "Chronic Absenteeism visualizations built with Ed-Fi connected Tableau reports",
             "preInstallPackages": "tableau-desktop",
@@ -17,14 +31,14 @@
                 {"type": "URL", "name": "Chronic Absenteeism Starter Kit Guide", "URI": "https://techdocs.ed-fi.org/display/SK/Chronic+Absenteeism+Starter+Kit" }
             ]
         },
-        {   "name": "ParentPortal",
-            "description": "The Parent Engagement Portal",
+        {   "name": "FamilyPortal",
+            "description": "The Family Engagement Portal",
             "preInstallPackages": "nodejs netfx-4.7.1-devpack",
             "dbInstallPackages": "",
             "postInstallPackages": "visualstudio2019community",
             "repo": "https://github.com/Ed-Fi-Exchange-OSS/ParentPortal",
-            "installSubPath": "ParentPortal",
-            "installer": "",
+            "installSubPath": "FamilyPortal",
+            "installer": "update-SQLdatabase.ps1",
             "EdFiVersion": "3.2.0",
             "appLinks": [
                 {"type": "File", "name": "Open ParentPortal Project in Visual Studio Community", "URI": "Student1.ParentPortal.sln" },
@@ -35,27 +49,14 @@
         {   "name": "AssessmentEQ24",
             "description": "Assessment Essential Question 24: Are My Students Improving in Math?",
             "preInstallPackages": "powerbi",
-            "repo": "",
-            "installSubPath": "EQ24",
+            "repo": "https://github.com/Ed-Fi-Exchange-OSS/Assessment-EQ-24",
+            "installSubPath": "Assessment-EQ-24",
             "installer": "",
             "EdFiVersion": "2.6.0",
             "appLinks": [
-                {"type": "URL", "name": "Docs for EQ 24 on the Ed-Fi Exchange", "URI": "https://techdocs.ed-fi.org/pages/viewpage.action?pageId=75108717" },
-                {"type": "File", "name": "EQ 24 template for PowerBI", "URI": "EQ24 Template.pbix" }
-            ]
-        },
-        {   "name": "base",
-            "description": "Base Ed-Fi Suite 3 with ODS/API, Analytics Mid Tier, and Admin App",
-            "preInstallPackages": "",
-            "postInstallPackages": "",
-            "repo": "",
-            "archive": "",
-            "installSubPath": ".",
-            "installer": "",
-            "EdFiVersion": "s3v500",
-            "appLinks": [
-                {"type": "URL", "name": "Admin App", "URI": "/AdminApp" },
-                {"type": "URL", "name": "API URL", "URI": "/EdFiOdsWebApi" }
+                {"type": "URL", "name": "Docs for EQ 24 on GitHub", "URI": "https://github.com/Ed-Fi-Exchange-OSS/Assessment-EQ-24/blob/main/EQ-24-Documentation%2BDeployment_Instructions.pdf" },
+                {"type": "File", "name": "EQ 24 template for PowerBI", "URI": "EQ 24 Template.pbix" },
+                {"type": "File", "name": "EQ 24 project for Visual Studio", "URI": "EQ 24.sln" }
             ]
         }
     ]

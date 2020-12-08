@@ -94,7 +94,7 @@ Set-Location $EdFiDir
 Start-Transcript -Path "$LogPath\solution-install.log"
 Write-Progress -Activity "Beginning installation" -Status "0% Complete:" -PercentComplete 0;
 if (!$noui -and [string]::IsNullOrEmpty($SolutionName)) {
-    $SolutionSelected=$solcfg.solutions | Select-Object name,Description,EdFiVersion,installSubPath,chocoPackages,repo | Out-GridView -OutputMode Single -Title "Select the solution you would like to install, or cancel for all"
+    $SolutionSelected=$solcfg.solutions | Select-Object name,description,EdFiVersion,installSubPath,archive,repo,preInstallPackages,dbInstallPackages,postInstallPackages,installer | Out-GridView -OutputMode Single -Title "Select the solution you would like to install, or cancel for all"
     if (![string]::IsNullOrEmpty($SolutionSelected)) {
         $SolutionName = $SolutionSelected.name
     }
@@ -155,6 +155,7 @@ Write-Progress -Activity "Configuration parameters set. Adding DNS info to compu
 #
 # UI for options
 #
+$OdsApiParams=$null
 #
 #
 if ($OldComputerName -notlike $NewComputerName) {
@@ -258,7 +259,7 @@ foreach ($pkg in $dbInstallPackages) {
     $MSSQLInstalled = $MSSQLInstalled -or ($pkg.package -like "sql-server*")
 }
 if ($PGSQLInstalled) {
-    Initialize-Postgresql -Verbose:$VerbosePreference
+    $PGEnv=Initialize-Postgresql -Verbose:$VerbosePreference
     Write-Verbose "PostgreSQL installed and configured for use."
 }
 if ($MSSQLInstalled) {
@@ -292,20 +293,33 @@ Write-Progress -Activity "IIS Configured for SSL" -Status "50% Complete:" -Perce
 # Add IIS special integrated user to SQL Server login along with those in Users group for Demo mode
 if (![string]::IsNullOrEmpty($SQLINST)) {
     Add-SQLIntegratedSecurityUser -UserName $iisConfig.integratedSecurityUser -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
-    # Now get all of the Users group (if Demo) members added to make this actually work
-    if ($InstallType -like "Demo") {
-        $LocalUsers=(@(Get-LocalGroupMember "Users") | Where-Object {$_.ObjectClass -like "User"}).Name
-        foreach ($usr in $LocalUsers) {
+}
+if ($null -ne $PGEnv) {
+    Update-PostgreSQLSecurityUser -UserName "$($iisConfig.integratedSecurityUser)@$env:COMPUTERNAME" -PGEnv $PGEnv -Verbose:$VerbosePreference
+    # Map logged in user to postgres admin user
+    Update-PostgreSQLSecurityUser -UserName "$env:USERNAME@$env:COMPUTERNAME" -PGEnv $PGEnv -Verbose:$VerbosePreference
+    Write-Verbose "PostgreSQL installed and configured for use."
+}
+# Now get all of the Users group (if Demo) members added to make this actually work
+if ($InstallType -like "Demo") {
+    $LocalUsers=(@(Get-LocalGroupMember "Users") | Where-Object {$_.ObjectClass -like "User"}).Name
+    foreach ($usr in $LocalUsers) {
+        if (![string]::IsNullOrEmpty($SQLINST)) {
             Update-SQLIntegratedSecurityUser -UserName $usr -ComputerName $NewComputerName -PreviousComputerName $OldComputerName -IntegratedSecurityRole 'sysadmin' -SQLServerName "." -Verbose:$VerbosePreference
         }
+        if ($null -ne $PGEnv) {
+            Update-PostgreSQLSecurityUser -UserName "$usr@$env:COMPUTERNAME" -PGEnv $PGEnv -Verbose:$VerbosePreference
+        }
     }
-    Write-Progress -Activity "Integrated Security configured" -Status "55% Complete:" -PercentComplete 55;    
 }
+Write-Progress -Activity "Integrated Security configured" -Status "55% Complete:" -PercentComplete 55;    
 #
 # Now get needed versions of the ODS/API, Admin App, AMT, and Data Import installed
 foreach ($ver in $EdFiVersions) {
     Write-Verbose "Installing Ed-Fi Suite with v$ver of ODS-API"
-    Install-BaseEdFi $InstallType $ver $DnsName $EdFiDir $iisConfig -Verbose:$VerbosePreference
+    $OdsApiParams=Install-BaseEdFi $InstallType $ver $DnsName $EdFiDir $iisConfig -Verbose:$VerbosePreference
+    Add-DesktopAppLinks $OdsApiParams["Urls"] -Verbose:$VerbosePreference
+    Add-WebAppLinks -AppURIs $OdsApiParams["Urls"] -DnsName $DnsName -SolutionName "Ed-Fi Tools for ODS/API v$ver" -Verbose:$VerbosePreference
     Write-Verbose "Completed Ed-Fi Suite v$ver installation"
 }
 Write-Progress -Activity "Ed-FI Suite installed" -Status "60% Complete:" -PercentComplete 60;
@@ -317,7 +331,7 @@ Write-Progress -Activity "Data Import" -Status "70% Complete:" -PercentComplete 
 # Install all solutions listed
 # Please edit the "solutions" section of the config file as needed
 # Refer to Configuration guide:
-Install-Solutions -Solutions $solutionsInstall -DnsName $DnsName -GitPrefix $GitPrefix -DownloadPath $downloadPath -EdFiDir $EdFiDir -WebPath $SolutionWebRoot -Verbose:$VerbosePreference
+Install-Solutions -Solutions $solutionsInstall -DnsName $DnsName -GitPrefix $GitPrefix -DownloadPath $downloadPath -EdFiDir $EdFiDir -WebPath $SolutionWebRoot -EdFiParamTable $OdsApiParams -Verbose:$VerbosePreference
 #
 Write-Progress -Activity "Solutions installed" -Status "80% Complete:" -PercentComplete 80;
 #

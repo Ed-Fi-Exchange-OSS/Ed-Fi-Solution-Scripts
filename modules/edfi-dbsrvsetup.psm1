@@ -281,25 +281,58 @@ function Initialize-Postgresql {
     param ()   
     #
     # Check the Postgres install
-    $psqlHome=Get-Command "psql.exe" -ErrorAction SilentlyContinue | ForEach-Object {$_.Source -Replace "\\bin\\psql.exe", ""}
-    if (!$psqlHome) {
-        $psqlInstall = Get-ChildItem -Path "C:\Program Files\PostgreSQL\*" -ErrorAction SilentlyContinue | Sort-Object -Property @{expression='Name'; descending=$true}
-        if (!$psqlInstall) {
-            Install-Choco "postgresql"
-            $psqlInstall = Get-ChildItem -Path "C:\Program Files\PostgreSQL\*" | Sort-Object -Property @{expression='Name'; descending=$true}
+    $pgsqlHome=Get-Command "psql.exe" -ErrorAction SilentlyContinue | ForEach-Object {$_.Source -Replace "\\bin\\psql.exe", ""}
+    if (!$pgsqlHome) {
+        $pgsqlInstall = Get-ChildItem -Path "C:\Program Files\PostgreSQL\*" -ErrorAction SilentlyContinue | Sort-Object -Property @{expression='Name'; descending=$true}
+        if (!$pgsqlInstall) {
+            Install-Choco -Packages "postgresql" -PackageParams "/password:Learning4Fun!"
+            $pgsqlInstall = Get-ChildItem -Path "C:\Program Files\PostgreSQL\*" | Sort-Object -Property @{expression='Name'; descending=$true}
         }
-        $psqlHome = "C:\Program Files\PostgreSQL\" + $psqlInstall.Name
+        $pgsqlVersion = $pgsqlInstall.Name
+        $pgsqlHome = "C:\Program Files\PostgreSQL\" + $pgsqlVersion
+    }
+    else {
+        $pgsqlVersion = $pgsqlHome -replace ".*\\([0-9]{1,2})",'$1'
     }
 
-    if (-not (Test-Path -ErrorAction SilentlyContinue $psqlHome)) {
-        throw "Required Postgres path not found: $psqlHome"
+    if (-not (Test-Path -ErrorAction SilentlyContinue $pgsqlHome)) {
+        throw "Required Postgres path not found: $pgsqlHome"
     }
-
-    Write-Verbose "Prepending $psqlHome to the PATH."
-    $env:Path = "$psqlHome\bin;" + $env:Path
-    if (!$Env:PGDATA) { $Env:PGDATA = $psqlHome + "\data" }
-    if (!$Env:PGLOCALEDIR) { $Env:PGLOCALEDIR = $psqlHome + "\share\locale" }
-    if (!$Env:PGPORT) { $Env:PGPORT = "5432" }
+    $pgsqlEnv=Get-Content "$pgsqlHome\pg_env.bat"
+    $pg=@{
+        Home="$pgsqlHome";
+        Port=$pgsqlEnv -match '@SET PGPORT=(.*)' -replace ".*@SET PGPORT=([0-9]{2,5}).*",'$1' | Select-Object -First 1;
+        Data=$pgsqlEnv -match '@SET PGDATA=(.*)' -replace ".*@SET PGDATA=(.*).*",'$1' | Select-Object -First 1;
+        LocaleDir=$pgsqlEnv -match '@SET PGLOCALEDIR=(.*)' -replace ".*@SET PGLOCALEDIR=(.*).*",'$1' | Select-Object -First 1;
+        Version="$pgsqlVersion";
+    }
+    Write-Verbose "Prepending $pgsqlHome to the PATH."
+    $env:Path = "$pgsqlHome\bin;" + $env:Path
+    if (!$Env:PGVERS) { $Env:PGVERS = $pgsqlVersion }
+    if (!$Env:PGDATA) { $Env:PGDATA = $pg.Data }
+    if (!$Env:PGLOCALEDIR) { $Env:PGLOCALEDIR = $pg.LocaleDir }
+    if (!$Env:PGPORT) { $Env:PGPORT = $pg.Port }
+    return $pg
+}
+function Update-PostgreSQLSecurityUser {
+    [CmdletBinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
+    param (
+        [ValidateNotNullOrEmpty()][string] $UserName = "$env:USERNAME@$env:COMPUTERNAME",
+        [ValidateNotNullOrEmpty()]$PGEnv = @{Data="$Env:PGDATA";Version="$Env:PGVERS";Server="localhost"}
+    )
+    # First check to see that postgres user is in hba file
+    $pgHBA = "$($PGEnv.Data)\pg_hba.conf"
+    $pgHBAFile = Get-Content $pgHBA
+    if (!(($pgHBAFile) -match "host\s+all\s+postgres\s+[1234567890:./]+\s+sspi\s+map=MapForSSPI")) {
+        $pgHBAFile -replace "(host\s+all\s+)all     (\s+127.0.0.1/32+\s+)md5","`${1}postgres`${2}sspi map=MapForSSPI`n`${1}all     `${2}md5" -replace "(host\s+all\s+)all     (\s+::1/128+\s+)md5","`${1}postgres`${2}sspi map=MapForSSPI`n`${1}all     `${2}md5" | Set-Content $pgHBA
+    }
+    # Then add an entry for the given user name (defaults to current user)
+    $pgIdent = "$($PGEnv.Data)\pg_ident.conf"
+    $pgIdentFile = Get-Content $pgIdent
+    if (!(($pgIdentFile) -match "MapForSSPI\s+$UserName\s+postgres")) {
+        Add-Content -Encoding UTF8  $pgIdent ("MapForSSPI".PadRight(16, " ") + "$UserName".PadRight(30, " ") + "postgres")
+    }
+    Restart-Service "postgresql-x64-$($PGEnv.Version)"
 }
 function Restore-MSSQLDatabase {
     [cmdletbinding(HelpUri="https://github.com/Ed-Fi-Exchange-OSS/Ed-Fi-Solution-Scripts")]
