@@ -114,22 +114,22 @@
       "us-east-1": {
         "AMILookupS3Bucket": "winami1.lambda.edfi.org",
         "AWSLogsAcct": "127311923021",
-        "AMI": "ami-0f5761c546ea1265a"
+        "AMI": "ami-02642c139a9dfb378"
       },
       "us-east-2": {
         "AMILookupS3Bucket": "winami2.lambda.edfi.org",
         "AWSLogsAcct": "033677994240",
-        "AMI": "ami-00d1b5cc1e5341681"
+        "AMI": "ami-00843a337042b9b8b"
       },
       "us-west-1": {
         "AMILookupS3Bucket": "winami3.lambda.edfi.org",
         "AWSLogsAcct": "027434742980",
-        "AMI": "ami-04e7f4a09f5c3d6ce"
+        "AMI": "ami-0b7c10374cfb013e6"
       },
       "us-west-2": {
         "AMILookupS3Bucket": "winami4.lambda.edfi.org",
         "AWSLogsAcct": "797873946194",
-        "AMI": "ami-0831fe8c0427acf5b"
+        "AMI": "ami-0f7db24b49508dd37"
       }
     },
     "DynamicDNS" : {
